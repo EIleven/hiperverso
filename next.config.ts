@@ -42,6 +42,9 @@ const nextConfig: NextConfig = {
   // 1. Habilita React Strict Mode
   reactStrictMode: true,
 
+  // 1.1 Oculta o indicador flutuante do Next.js Dev Tools sobre a interface
+  devIndicators: false,
+
   // 2. Remove o header "X-Powered-By"
   poweredByHeader: false,
 
