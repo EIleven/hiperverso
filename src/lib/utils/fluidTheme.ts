@@ -1,13 +1,14 @@
 'use client';
 
 const TRANSITION_CLASS = 'hv-theme-transition';
-const TRANSITION_DURATION_MS = 420;
+const TRANSITION_DURATION_MS = 480;
 
 let transitionTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
 /**
- * Alterna o tema do app de forma fluida usando View Transitions quando suportado,
- * ou uma transição CSS temporária em todo o documento.
+ * Alterna o tema do app de forma fluida aplicando transição CSS temporária
+ * sincronizada antes da troca de classe do `next-themes` (evita o corte brusco
+ * causado por snapshots assíncronos de ViewTransition).
  */
 export function switchThemeFluid(
   setTheme: (theme: string) => void,
@@ -23,19 +24,11 @@ export function switchThemeFluid(
     return;
   }
 
-  const doc = document as Document & {
-    startViewTransition?: (callback: () => void) => { finished?: Promise<void> };
-  };
-
-  if (typeof doc.startViewTransition === 'function') {
-    doc.startViewTransition(() => {
-      setTheme(nextTheme);
-    });
-    return;
-  }
-
   const root = document.documentElement;
   root.classList.add(TRANSITION_CLASS);
+  // Garante que o navegador calcule os estilos atuais com transição ativa antes da troca de tema.
+  void root.offsetWidth;
+
   if (transitionTimeoutId !== null) {
     clearTimeout(transitionTimeoutId);
   }

@@ -143,7 +143,10 @@ function parseHslTriplet(value: string): HslTriplet | null {
 }
 
 function formatHslTriplet(hsl: HslTriplet): string {
-  return `${Math.round(hsl.h)} ${Math.round(hsl.s)}% ${Math.round(hsl.l)}%`;
+  const h = Number((((hsl.h % 360) + 360) % 360).toFixed(1));
+  const s = Number(Math.max(0, Math.min(100, hsl.s)).toFixed(1));
+  const l = Number(Math.max(0, Math.min(100, hsl.l)).toFixed(1));
+  return `${h} ${s}% ${l}%`;
 }
 
 export function getContrastForegroundHsl(hex: string): string {
@@ -251,6 +254,7 @@ export function applyDocumentAccentColor(
 }
 
 let activeAccentAnimationFrame: number | null = null;
+let activeAccentTargetHex: string | null = null;
 
 function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -264,9 +268,26 @@ export function transitionDocumentAccentColor(
   accentColor?: string | null,
   options?: { highContrast?: boolean; fallbackToDynamicOfficial?: boolean; durationMs?: number }
 ): () => void {
+  const resolvedTarget = isValidHexColor(accentColor)
+    ? accentColor
+    : (options?.fallbackToDynamicOfficial ? getOfficialDynamicColor().hex : null);
+  const normalizedTarget = resolvedTarget ? resolvedTarget.toLowerCase() : null;
+
+  // Se uma animação em andamento já está indo para a mesma cor (ex.: refresh após salvar),
+  // preserva a interpolação sem cortar/reiniciar.
+  if (
+    activeAccentAnimationFrame !== null &&
+    !options?.highContrast &&
+    normalizedTarget &&
+    activeAccentTargetHex === normalizedTarget
+  ) {
+    return () => {};
+  }
+
   if (activeAccentAnimationFrame !== null && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
     window.cancelAnimationFrame(activeAccentAnimationFrame);
     activeAccentAnimationFrame = null;
+    activeAccentTargetHex = null;
   }
 
   if (
@@ -343,6 +364,7 @@ export function transitionDocumentAccentColor(
     const rawProgress = Math.min(1, (now - startTime) / durationMs);
     if (rawProgress >= 1) {
       activeAccentAnimationFrame = null;
+      activeAccentTargetHex = null;
       applyDocumentAccentColor(targetColor, options);
       return;
     }
@@ -376,6 +398,7 @@ export function transitionDocumentAccentColor(
     activeAccentAnimationFrame = window.requestAnimationFrame(step);
   };
 
+  activeAccentTargetHex = targetColor.toLowerCase();
   activeAccentAnimationFrame = window.requestAnimationFrame(step);
 
   return () => {
@@ -384,5 +407,6 @@ export function transitionDocumentAccentColor(
       window.cancelAnimationFrame(activeAccentAnimationFrame);
       activeAccentAnimationFrame = null;
     }
+    activeAccentTargetHex = null;
   };
 }
