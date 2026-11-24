@@ -44,7 +44,7 @@ export default function CollapsibleSidebarCard({
       aria-label={title}
       className="rounded-2xl border border-border/70 bg-card/50 transition-colors duration-200 hover:border-border"
     >
-      <div className="flex items-center justify-between gap-2 px-5 py-3.5">
+      <div className="flex items-center justify-between gap-2 px-4 py-3">
         <button
           type="button"
           onClick={onToggle}
@@ -84,7 +84,7 @@ export default function CollapsibleSidebarCard({
         )}
       >
         <div className="overflow-hidden">
-          <div className="px-5 pb-4 pt-1">
+          <div className="px-4 pb-3.5 pt-0.5">
             {description && (
               <p className="mb-3 text-xs leading-relaxed text-muted-foreground">{description}</p>
             )}

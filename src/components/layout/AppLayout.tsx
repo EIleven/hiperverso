@@ -259,7 +259,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
               'w-full',
               isMessagesRoute
                 ? 'flex max-w-[1400px] mx-auto justify-center px-0 min-[801px]:px-4'
-                : 'min-h-screen flex justify-center max-w-[1680px] mx-auto min-[800px]:grid min-[800px]:grid-cols-[minmax(76px,1fr)_minmax(0,660px)_minmax(76px,1fr)] min-[800px]:gap-x-4 min-[800px]:px-4 min-[1100px]:grid-cols-[minmax(76px,1fr)_minmax(0,640px)_minmax(320px,1fr)] min-[1100px]:gap-x-5 min-[1100px]:px-4 min-[1280px]:grid-cols-[minmax(232px,1fr)_minmax(0,640px)_minmax(320px,1fr)] min-[1280px]:gap-x-6 min-[1280px]:px-5 min-[1440px]:grid-cols-[minmax(252px,1fr)_minmax(0,680px)_minmax(360px,1fr)] min-[1440px]:gap-x-8 min-[1440px]:px-8 min-[1600px]:grid-cols-[minmax(264px,1fr)_minmax(0,720px)_minmax(390px,1fr)] min-[1600px]:gap-x-12 min-[1600px]:px-10'
+                : 'min-h-screen flex justify-center max-w-[1680px] mx-auto min-[800px]:grid min-[800px]:grid-cols-[minmax(76px,1fr)_minmax(0,660px)_minmax(76px,1fr)] min-[800px]:gap-x-4 min-[800px]:px-4 min-[1100px]:grid-cols-[minmax(76px,1fr)_minmax(0,660px)_minmax(272px,1fr)] min-[1100px]:gap-x-5 min-[1100px]:px-4 min-[1280px]:grid-cols-[minmax(240px,1fr)_minmax(0,660px)_minmax(280px,1fr)] min-[1280px]:gap-x-5 min-[1280px]:px-4 min-[1440px]:grid-cols-[minmax(260px,1fr)_minmax(0,720px)_minmax(300px,1fr)] min-[1440px]:gap-x-7 min-[1440px]:px-6 min-[1600px]:grid-cols-[minmax(276px,1fr)_minmax(0,780px)_minmax(310px,1fr)] min-[1600px]:gap-x-10 min-[1600px]:px-8'
             )}
           >
             <DesktopSidebar
@@ -280,7 +280,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
                 'w-full min-w-0',
                 isMessagesRoute
                   ? 'flex-1 max-w-[1200px]'
-                  : 'max-w-[660px] min-[1100px]:max-w-[640px] min-[1440px]:max-w-[680px] min-[1600px]:max-w-[720px] justify-self-center min-h-screen min-[800px]:border-x min-[800px]:border-border/70'
+                  : 'max-w-[660px] min-[1440px]:max-w-[720px] min-[1600px]:max-w-[780px] justify-self-center min-h-screen min-[800px]:border-x min-[800px]:border-border/70'
               )}
             >
               <AppHeader />
