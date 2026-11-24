@@ -9,17 +9,21 @@ import { getMessaging } from 'firebase-admin/messaging';
 import { getStorage } from 'firebase-admin/storage';
 
 function adminApp(): App {
-  if (process.env.NEXT_PUBLIC_USE_EMULATORS === 'true') {
+  const useEmulators = process.env.NEXT_PUBLIC_USE_EMULATORS === 'true';
+  if (useEmulators) {
     process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9099';
     process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080';
-  }
-  if (process.env.NEXT_PUBLIC_USE_EMULATORS === 'true') {
+    process.env.FIREBASE_DATABASE_EMULATOR_HOST ||= '127.0.0.1:9000';
     process.env.FIREBASE_STORAGE_EMULATOR_HOST ||= '127.0.0.1:9199';
   }
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   const databaseURL =
     process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL ||
-    (projectId ? `https://${projectId}-default-rtdb.firebaseio.com` : undefined);
+    (useEmulators && projectId
+      ? `http://127.0.0.1:9000/?ns=${projectId}-default-rtdb`
+      : projectId
+        ? `https://${projectId}-default-rtdb.firebaseio.com`
+        : undefined);
   return getApps()[0] ?? initializeApp({
     projectId,
     storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
