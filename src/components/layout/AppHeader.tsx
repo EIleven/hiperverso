@@ -7,13 +7,18 @@ import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { Button } from '@/components/ui/button';
 import Logo from '@/components/shared/Logo';
 import GlobalSearch from './GlobalSearch';
+import NotificationsBellButton from './NotificationsBellButton';
 import { LogIn, UserPlus } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { useLocale } from 'next-intl';
 import { SidebarTrigger } from '@/components/ui/sidebar'; // Importar o SidebarTrigger
 
-export default function AppHeader() {
+interface AppHeaderProps {
+  unreadNotifications?: number;
+}
+
+export default function AppHeader({ unreadNotifications = 0 }: AppHeaderProps) {
   const { currentUser, isLoading } = useCurrentUser();
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const locale = useLocale();
@@ -51,11 +56,14 @@ export default function AppHeader() {
         <Logo />
       </div>
 
-      {/* Right side: Search */}
+      {/* Right side: Notifications + Search */}
       <div className={cn(
-        "flex items-center justify-end",
+        "flex items-center justify-end gap-1",
         isSearchExpanded && "col-span-3 -ml-12"
       )}>
+        {!isSearchExpanded && !isLoading && currentUser && (
+          <NotificationsBellButton unreadCount={unreadNotifications} variant="ghost" />
+        )}
         <GlobalSearch isExpanded={isSearchExpanded} setIsExpanded={setIsSearchExpanded} />
       </div>
     </header>

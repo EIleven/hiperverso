@@ -14,6 +14,7 @@ import UserProfileHoverCard from '@/components/profile/UserProfileHoverCard';
 import TopNewsItem from '@/components/trending/TopNewsItem';
 import RecommendationSettingsDialog from '@/components/recommendations/RecommendationSettingsDialog';
 import GlobalSearch from '@/components/layout/GlobalSearch';
+import NotificationsBellButton from '@/components/layout/NotificationsBellButton';
 import CollapsibleSidebarCard from '@/components/layout/CollapsibleSidebarCard';
 import { useCurrentUserId } from '@/contexts/CurrentUserContext';
 import { useMediaQuery } from '@/hooks/use-media-query';
@@ -44,7 +45,10 @@ function readCollapsedState(): Record<string, boolean> {
 function SidebarContentSkeleton() {
   return (
     <div className="space-y-5" aria-hidden="true">
-      <Skeleton className="h-10 w-full rounded-full" />
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-10 flex-1 rounded-full" />
+        <Skeleton className="h-10 w-10 shrink-0 rounded-full" />
+      </div>
       <div className="space-y-3 rounded-2xl border border-border/70 p-5">
         <Skeleton className="h-5 w-28" />
         <Skeleton className="h-3 w-48" />
@@ -84,7 +88,11 @@ function SidebarContentSkeleton() {
   );
 }
 
-export default function RightSidebar() {
+interface RightSidebarProps {
+  unreadNotifications?: number;
+}
+
+export default function RightSidebar({ unreadNotifications = 0 }: RightSidebarProps) {
   const [clientHasMounted, setClientHasMounted] = useState(false);
   const [trendingTopics, setTrendingTopics] = useState<SidebarTopic[]>([]);
   const [topNewsItems, setTopNewsItems] = useState<Post[]>([]);
@@ -190,7 +198,14 @@ export default function RightSidebar() {
     <aside className={asideClassName} aria-label={t('sidebarLabel')}>
       <div className="space-y-5">
         <div className="sticky top-0 z-10 bg-background/85 px-0.5 pb-3 pt-0.5 backdrop-blur-md">
-          <GlobalSearch isExpanded alwaysExpanded setIsExpanded={() => {}} />
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <GlobalSearch isExpanded alwaysExpanded setIsExpanded={() => {}} />
+            </div>
+            {currentUserId && (
+              <NotificationsBellButton unreadCount={unreadNotifications} variant="pill" />
+            )}
+          </div>
         </div>
 
         <CollapsibleSidebarCard

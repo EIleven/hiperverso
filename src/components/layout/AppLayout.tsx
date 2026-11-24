@@ -283,7 +283,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
                   : 'max-w-[660px] min-[1440px]:max-w-[720px] min-[1600px]:max-w-[780px] justify-self-center min-h-screen min-[800px]:border-x min-[800px]:border-border/70'
               )}
             >
-              <AppHeader />
+              <AppHeader unreadNotifications={unreadNotificationsCount} />
               {/* Dentro de uma conversa a tela tem altura exata: um aviso a mais aqui empurraria o compositor para fora
                   da área visível. O aviso continua em todas as outras telas, inclusive na lista de conversas. */}
               {clientHasMounted && firebaseUser && !firebaseUser.emailVerified && !isFederatedLoginAccount
@@ -301,7 +301,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
               )}
             </main>
 
-            {!isMessagesRoute && <RightSidebar />}
+            {!isMessagesRoute && <RightSidebar unreadNotifications={unreadNotificationsCount} />}
           </div>
           
           {showMobileNav && (
