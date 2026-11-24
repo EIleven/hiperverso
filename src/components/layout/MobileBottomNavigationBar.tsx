@@ -71,7 +71,7 @@ const MobileBottomNavigationBar: React.FC<MobileBottomNavigationBarProps> = ({
 
   return (
     // Mantém a barra inferior sempre à mostra no mobile para navegação imediata.
-    <div className="fixed bottom-0 left-0 right-0 h-14 bg-background border-t border-border shadow-md flex items-center justify-around z-40">
+    <div className="fixed bottom-0 left-0 right-0 h-14 bg-background border-t border-border shadow-md flex items-center justify-around z-[45]">
       {allDisplayItems.map((item) => {
         let actualHref = item.href;
         let isActive = false;

@@ -245,30 +245,38 @@ html.hv-theme-transition *,
 html.hv-theme-transition *::before,
 html.hv-theme-transition *::after {
   transition:
-    background-color 380ms cubic-bezier(0.22, 1, 0.36, 1),
-    color 380ms cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 380ms cubic-bezier(0.22, 1, 0.36, 1),
-    fill 380ms cubic-bezier(0.22, 1, 0.36, 1),
-    stroke 380ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+    background-color 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    outline-color 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    fill 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    stroke 420ms cubic-bezier(0.22, 1, 0.36, 1) !important;
 }
 
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation-duration: 360ms;
-  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+@keyframes hv-page-enter {
+  from {
+    opacity: 0.62;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.hv-page-enter {
+  animation: hv-page-enter 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .hv-page-enter {
+    animation: none;
+  }
   body,
   html.hv-theme-transition,
   html.hv-theme-transition *,
   html.hv-theme-transition *::before,
   html.hv-theme-transition *::after {
     transition: none !important;
-  }
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
-    animation: none !important;
   }
 }
 
@@ -339,6 +347,7 @@ html.hv-theme-transition *::after {
   html,
   body {
     overscroll-behavior-y: contain;
+    overflow-x: clip;
   }
   button,
   [role="button"],
@@ -386,7 +395,7 @@ html.hv-theme-transition *::after {
   }
   @media (max-width: 799px) {
     html[data-chrome='hidden'] .chrome-float-mobile {
-      transform: translateY(calc(100% + 6rem));
+      transform: translateX(calc(100% + 2rem));
       opacity: 0;
       pointer-events: none;
     }
