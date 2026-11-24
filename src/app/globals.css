@@ -71,14 +71,27 @@ body {
        nenhuma: os dois viram 0 e o compositor encosta no teclado. */
     --chat-chrome-top: var(--header-height); /* cabeçalho do app: é sticky, ocupa lugar no fluxo */
     --chat-chrome-bottom: 3.5rem; /* barra de abas do celular: é fixa, não ocupa lugar, então precisa ser descontada */
-    --sidebar-left-width: 280px; /* Default expanded */
-    --sidebar-right-width: 380px; /* Default visible */
+    --sidebar-left-width: 232px; /* Default expanded (>= 1280px) */
+    --sidebar-right-width: 320px; /* Default visible (>= 1100px) */
   }
 
   /* Breakpoints for sidebar widths */
-  @media (max-width: 1299px) {
+  @media (min-width: 1440px) {
     :root {
-      --sidebar-left-width: 88px; /* Compact rail mode */
+      --sidebar-left-width: 252px;
+      --sidebar-right-width: 360px;
+    }
+  }
+  @media (min-width: 1600px) {
+    :root {
+      --sidebar-left-width: 264px;
+      --sidebar-right-width: 390px;
+    }
+  }
+  @media (max-width: 1279px) {
+    :root {
+      --sidebar-left-width: 76px; /* Compact rail mode */
+      --sidebar-right-width: 320px;
     }
   }
   @media (max-width: 1099px) {
@@ -99,6 +112,11 @@ body {
   @media (min-width: 800px) {
     :root {
       --chat-chrome-bottom: 0px; /* a barra de abas é só do celular */
+    }
+  }
+  @media (min-width: 1100px) {
+    :root {
+      --header-height: 0px; /* desktop oculta o cabeçalho redundante */
     }
   }
 
@@ -216,6 +234,41 @@ body {
   }
   body {
     @apply bg-background text-foreground;
+    transition:
+      background-color 320ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+html.hv-theme-transition,
+html.hv-theme-transition *,
+html.hv-theme-transition *::before,
+html.hv-theme-transition *::after {
+  transition:
+    background-color 380ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 380ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 380ms cubic-bezier(0.22, 1, 0.36, 1),
+    fill 380ms cubic-bezier(0.22, 1, 0.36, 1),
+    stroke 380ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 360ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body,
+  html.hv-theme-transition,
+  html.hv-theme-transition *,
+  html.hv-theme-transition *::before,
+  html.hv-theme-transition *::after {
+    transition: none !important;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
   }
 }
 

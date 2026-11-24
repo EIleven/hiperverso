@@ -21,8 +21,8 @@ import {
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
-const SIDEBAR_WIDTH_EXPANDED = "280px"
-const SIDEBAR_WIDTH_COMPACT = "88px"
+const SIDEBAR_WIDTH_EXPANDED = "244px"
+const SIDEBAR_WIDTH_COMPACT = "76px"
 const SIDEBAR_WIDTH_MOBILE = "18rem" // 288px
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
 
@@ -77,10 +77,10 @@ const SidebarProvider = React.forwardRef<
     React.useEffect(() => {
         const checkWidth = () => {
             const width = window.innerWidth;
-            if (width < 1300) { // Use the custom breakpoint
-                setOpenDesktop(false); // Collapse below 1300px
+            if (width < 1280) { // Use the custom breakpoint
+                setOpenDesktop(false); // Collapse below 1280px
             } else {
-                setOpenDesktop(true); // Expand above 1300px
+                setOpenDesktop(true); // Expand above 1280px
             }
         };
 
@@ -355,7 +355,7 @@ const SidebarContent = React.forwardRef<
       ref={ref}
       data-sidebar="content"
       className={cn(
-        "min-h-0 flex-col gap-2 overflow-y-auto overflow-x-hidden group-data-[state=expanded]/sidebar:flex",
+        "flex-1 min-h-0 flex-col gap-2 overflow-y-auto overflow-x-hidden group-data-[state=expanded]/sidebar:flex",
         className
       )}
       {...props}

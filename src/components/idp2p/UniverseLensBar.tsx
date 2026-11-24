@@ -53,6 +53,9 @@ interface UniverseLensBarProps {
   federatedLoginProvider?: string;
   federatedLoginHandle?: string;
   compact?: boolean;
+  controlledSwitcherOpen?: boolean;
+  onControlledSwitcherOpenChange?: (open: boolean) => void;
+  headless?: boolean;
 }
 
 function readLensCookie(): string {
@@ -79,6 +82,9 @@ export default function UniverseLensBar({
   federatedLoginProvider,
   federatedLoginHandle,
   compact = false,
+  controlledSwitcherOpen,
+  onControlledSwitcherOpenChange,
+  headless = false,
 }: UniverseLensBarProps) {
   const locale = useLocale();
   const router = useRouter();
@@ -88,7 +94,9 @@ export default function UniverseLensBar({
   const [activeLens, setActiveLens] = useState<string>('exercitodolula');
   const [extraUniverses, setExtraUniverses] = useState<UniverseOption[]>([]);
   const [deviceAccounts, setDeviceAccounts] = useState<DeviceSavedAccount[]>([]);
-  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [internalSwitcherOpen, setInternalSwitcherOpen] = useState(false);
+  const switcherOpen = controlledSwitcherOpen ?? internalSwitcherOpen;
+  const setSwitcherOpen = onControlledSwitcherOpenChange ?? setInternalSwitcherOpen;
   const [autoPromptPrimary, setAutoPromptPrimary] = useState<DeviceSavedAccount | null>(null);
   const [busyUid, setBusyUid] = useState<string | null>(null);
 
@@ -217,7 +225,7 @@ export default function UniverseLensBar({
     }
   };
 
-  if (compact) return null;
+  if (compact && !headless) return null;
 
   const universes: UniverseOption[] = [
     { id: 'exercitodolula', label: `@${username}`, handle: `@${username}`, targetUid: activeUid },
@@ -278,52 +286,54 @@ export default function UniverseLensBar({
   const otherDeviceAccounts = deviceAccounts.filter((a) => a.uid !== activeUid);
 
   return (
-    <div className="w-full pt-1.5">
-      <div className="flex flex-wrap items-center justify-center gap-1 rounded-xl bg-muted/40 p-1 border border-border/50">
-        {universes.slice(0, 4).map((u) => {
-          const isCurrentAccount = u.targetUid === activeUid || (!u.targetUid && activeLens === u.id);
-          const isSwitchingThis = Boolean(u.targetUid && busyUid === u.targetUid);
-          return (
-            <button
-              key={u.id}
-              type="button"
-              title={
-                u.targetUid && u.targetUid !== activeUid
-                  ? `Trocar em 1 toque para ${u.label} (${u.handle})`
-                  : `${u.label} (${u.handle})`
-              }
-              onClick={() => handleSelectPill(u)}
-              disabled={busyUid !== null}
-              className={cn(
-                'inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-all cursor-pointer',
-                isCurrentAccount
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/70'
-              )}
-            >
-              {isSwitchingThis ? (
-                <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-              ) : u.targetUid && u.targetUid !== activeUid ? (
-                <ArrowLeftRight className="h-3 w-3 shrink-0 text-primary" />
-              ) : u.id === 'exercitodolula' ? (
-                <Sparkles className="h-3 w-3 shrink-0" />
-              ) : (
-                <Globe2 className="h-3 w-3 shrink-0" />
-              )}
-              <span className="max-w-[82px] truncate">{u.label}</span>
-            </button>
-          );
-        })}
-        <button
-          type="button"
-          onClick={() => setSwitcherOpen(true)}
-          title="Trocar de conta ou conectar outra rede (IDP2P)"
-          aria-label="Trocar de conta ou conectar outra rede (IDP2P)"
-          className="inline-flex h-6 w-6 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </div>
+    <div className={headless ? undefined : 'w-full pt-1.5'}>
+      {!headless && (
+        <div className="flex flex-wrap items-center justify-center gap-1 rounded-xl bg-muted/40 p-1 border border-border/50">
+          {universes.slice(0, 4).map((u) => {
+            const isCurrentAccount = u.targetUid === activeUid || (!u.targetUid && activeLens === u.id);
+            const isSwitchingThis = Boolean(u.targetUid && busyUid === u.targetUid);
+            return (
+              <button
+                key={u.id}
+                type="button"
+                title={
+                  u.targetUid && u.targetUid !== activeUid
+                    ? `Trocar em 1 toque para ${u.label} (${u.handle})`
+                    : `${u.label} (${u.handle})`
+                }
+                onClick={() => handleSelectPill(u)}
+                disabled={busyUid !== null}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-all cursor-pointer',
+                  isCurrentAccount
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/70'
+                )}
+              >
+                {isSwitchingThis ? (
+                  <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                ) : u.targetUid && u.targetUid !== activeUid ? (
+                  <ArrowLeftRight className="h-3 w-3 shrink-0 text-primary" />
+                ) : u.id === 'exercitodolula' ? (
+                  <Sparkles className="h-3 w-3 shrink-0" />
+                ) : (
+                  <Globe2 className="h-3 w-3 shrink-0" />
+                )}
+                <span className="max-w-[82px] truncate">{u.label}</span>
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => setSwitcherOpen(true)}
+            title="Trocar de conta ou conectar outra rede (IDP2P)"
+            aria-label="Trocar de conta ou conectar outra rede (IDP2P)"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Modal de validação automática quando o P2P detecta outra conta no mesmo aparelho */}
       <Dialog

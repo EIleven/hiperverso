@@ -186,7 +186,8 @@ export default function ProfileContentTabs({
     const sentinel = stickySentinelRef.current;
     const bar = tabsRef.current;
     if (!sentinel || !bar) return;
-    const headerHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-height')) || 56;
+    const parsedHeaderHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-height'));
+    const headerHeight = Number.isFinite(parsedHeaderHeight) ? parsedHeaderHeight : 56;
     const observer = new IntersectionObserver(
       ([entry]) => { bar.dataset.stuck = entry.isIntersecting ? 'false' : 'true'; },
       { rootMargin: `-${headerHeight}px 0px 0px 0px` },

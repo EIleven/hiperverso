@@ -20,7 +20,7 @@ export default function AppHeader() {
 
   return (
     // Some ao rolar para baixo e volta ao rolar para cima: veja `.chrome-header` (globals.css), movido por CSS e não por estado.
-    <header className="chrome-header chrome-surface sticky top-0 z-30 grid h-12 grid-cols-3 items-center border-b border-border px-2 sm:px-4 sm:h-14 md:border-l md:border-r">
+    <header className="chrome-header chrome-surface sticky top-0 z-30 grid h-12 grid-cols-3 items-center border-b border-border/70 px-2 sm:px-4 sm:h-14 min-[1100px]:hidden">
       {/* Left side: Login/Register Actions or Sidebar Trigger */}
       <div className="flex items-center justify-start gap-2">
         {isLoading ? null : currentUser ? (

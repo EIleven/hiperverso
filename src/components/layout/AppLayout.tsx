@@ -21,7 +21,7 @@ import { Home, TrendingUp, Bell, MessageSquare, Search, Newspaper, KeyRound } fr
 
 import DesktopSidebar from './DesktopSidebar';
 import MobileBottomNavigationBar from './MobileBottomNavigationBar';
-import MobileFloatingActionButtons from './MobileFloatingActionButtons';
+import FloatingComposeDock from './FloatingComposeDock';
 import GlobalSearch from './GlobalSearch';
 import RightSidebar from './RightSidebar';
 import AppHeader from './AppHeader';
@@ -30,7 +30,7 @@ import DeviceLoginApprover from '@/components/auth/DeviceLoginApprover';
 import GlobalP2pListener from '@/components/messages/GlobalP2pListener';
 import { VisitorWelcomeTour, MemberWelcomeTour } from '@/components/onboarding/QuickTourDialog';
 import ManageFeedsDialog from '@/components/feed/ManageFeedsDialog';
-import { applyDocumentAccentColor, HIGH_CONTRAST_THEME } from '@/lib/utils/themeColor';
+import { HIGH_CONTRAST_THEME } from '@/lib/utils/themeColor';
 import { useDynamicOfficialColor } from '@/hooks/useDynamicOfficialColor';
 import { useTheme } from 'next-themes';
 import { useHiperChatMode } from '@/hooks/useHiperChatMode';
@@ -166,7 +166,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
     (currentUser as (User & { federatedLoginProvider?: string }) | null)?.federatedLoginProvider
   );
   const canCreateContent = Boolean(firebaseUser?.emailVerified === true || isFederatedLoginAccount);
-  const shouldShowFab = clientHasMounted && isMobile && currentUser && canCreateContent
+  const shouldShowFab = clientHasMounted && Boolean(currentUser) && canCreateContent
     && !fabHiddenPaths.some((path) => pathname.startsWith(path));
   
   // Dentro de uma conversa, no celular, a barra de abas sai de cena: ela é fixa no rodapé e disputava o mesmo lugar do
@@ -254,7 +254,14 @@ const AppLayout = ({ children }: AppLayoutProps) => {
         )}
       >
         <SidebarProvider forceCollapsed={isMessagesRoute}>
-          <div className="flex w-full max-w-[1400px] mx-auto justify-center px-0 min-[801px]:px-4">
+          <div
+            className={cn(
+              'w-full',
+              isMessagesRoute
+                ? 'flex max-w-[1400px] mx-auto justify-center px-0 min-[801px]:px-4'
+                : 'min-h-screen flex justify-center max-w-[1680px] mx-auto min-[800px]:grid min-[800px]:grid-cols-[minmax(76px,1fr)_minmax(0,660px)_minmax(76px,1fr)] min-[800px]:gap-x-4 min-[800px]:px-4 min-[1100px]:grid-cols-[minmax(76px,1fr)_minmax(0,640px)_minmax(320px,1fr)] min-[1100px]:gap-x-5 min-[1100px]:px-4 min-[1280px]:grid-cols-[minmax(232px,1fr)_minmax(0,640px)_minmax(320px,1fr)] min-[1280px]:gap-x-6 min-[1280px]:px-5 min-[1440px]:grid-cols-[minmax(252px,1fr)_minmax(0,680px)_minmax(360px,1fr)] min-[1440px]:gap-x-8 min-[1440px]:px-8 min-[1600px]:grid-cols-[minmax(264px,1fr)_minmax(0,720px)_minmax(390px,1fr)] min-[1600px]:gap-x-12 min-[1600px]:px-10'
+            )}
+          >
             <DesktopSidebar
               currentUser={currentUser}
               canCreateContent={canCreateContent}
@@ -264,16 +271,18 @@ const AppLayout = ({ children }: AppLayoutProps) => {
               pathname={pathname}
               navItems={navItems}
               handleLogout={handleLogout}
-              isCreatePostDialogOpen={isCreatePostDialogOpen}
-              setIsCreatePostDialogOpen={setIsCreatePostDialogOpen}
-              isCreateNewsDialogOpen={isCreateNewsDialogOpen}
-              setIsCreateNewsDialogOpen={setIsCreateNewsDialogOpen}
-              onPostCreated={handlePostCreated}
               clientHasMounted={clientHasMounted}
               onManageFeedsClick={() => setIsManageFeedsDialogOpen(true)}
             />
             
-            <main className={cn('w-full min-w-0', isMessagesRoute ? 'flex-1 max-w-[1200px]' : 'max-w-[600px]')}>
+            <main
+              className={cn(
+                'w-full min-w-0',
+                isMessagesRoute
+                  ? 'flex-1 max-w-[1200px]'
+                  : 'max-w-[660px] min-[1100px]:max-w-[640px] min-[1440px]:max-w-[680px] min-[1600px]:max-w-[720px] justify-self-center min-h-screen min-[800px]:border-x min-[800px]:border-border/70'
+              )}
+            >
               <AppHeader />
               {/* Dentro de uma conversa a tela tem altura exata: um aviso a mais aqui empurraria o compositor para fora
                   da área visível. O aviso continua em todas as outras telas, inclusive na lista de conversas. */}
@@ -309,7 +318,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
           )}
           
           {shouldShowFab && (
-            <MobileFloatingActionButtons
+            <FloatingComposeDock
               currentUser={currentUser}
               isLoadingCurrentUser={isLoadingCurrentUser}
               isCreatePostDialogOpen={isCreatePostDialogOpen}
@@ -317,8 +326,6 @@ const AppLayout = ({ children }: AppLayoutProps) => {
               isCreateNewsDialogOpen={isCreateNewsDialogOpen}
               setIsCreateNewsDialogOpen={setIsCreateNewsDialogOpen}
               onPostCreated={handlePostCreated}
-              setShowLoginPrompt={setShowLoginPrompt}
-              setPromptActionName={setPromptActionName}
               clientHasMounted={clientHasMounted}
             />
           )}
