@@ -166,22 +166,14 @@ export const loginUser = async (email?: string, password?: string, rememberMe: b
   }
 };
 
-const autoEnabledFederationUids = new Set<string>();
-
 /** Depois de entrar com o código do app autenticador: carrega o perfil (ou sai, se ele não existir). */
 export const loadProfileAfterSignIn = async (uid: string): Promise<User> => {
   if (auth.currentUser?.uid === uid) {
-    await ensureMembershipToken(auth.currentUser);
-    if (auth.currentUser.emailVerified && !autoEnabledFederationUids.has(uid)) {
-      autoEnabledFederationUids.add(uid);
-      auth.currentUser.getIdToken().then((token) => {
-        fetch('/api/ap/account', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ action: 'enable' }),
-        }).catch(() => null);
-      }).catch(() => null);
-    }
+    const currentAuthUser = auth.currentUser;
+    await ensureMembershipToken(currentAuthUser);
+    void import('@/lib/federation/client').then(({ ensureFederationEnabledForSession }) =>
+      ensureFederationEnabledForSession(currentAuthUser),
+    );
   }
   const user = await getUser(uid, uid, { fresh: true });
   if (user) return user;

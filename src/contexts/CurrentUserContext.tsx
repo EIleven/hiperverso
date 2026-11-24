@@ -209,16 +209,10 @@ export const CurrentUserProvider = ({ children }: { children: React.ReactNode })
         // A Function so a concede se perfil e vaga realmente existirem.
         void ensureMembershipToken(fbUser).catch(() => undefined);
 
-        // Garante automaticamente o @handle@exercitodolula.app para contas já logadas (idempotente).
-        if (fbUser.emailVerified || !fbUser.email) {
-          fbUser.getIdToken().then((token) => {
-            fetch('/api/ap/account', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-              body: JSON.stringify({ action: 'enable' }),
-            }).catch(() => undefined);
-          }).catch(() => undefined);
-        }
+        // Garante automaticamente o @handle quando a federação da plataforma estiver ativa (idempotente e sem 503 local).
+        void import('@/lib/federation/client').then(({ ensureFederationEnabledForSession }) =>
+          ensureFederationEnabledForSession(fbUser),
+        );
 
         const userDocRef = doc(db, 'users', fbUser.uid);
 

@@ -60,6 +60,34 @@ export const changeFederation = (u: FirebaseUser, action: 'enable' | 'pause' | '
 export const getDeliveries = async (u: FirebaseUser) => (await chamar<{ items: DeliveryItem[] }>(u, 'GET', '/api/ap/deliveries')).items;
 export const retryDelivery = (u: FirebaseUser, id: string) => chamar<{ ok: true }>(u, 'POST', '/api/ap/deliveries', { action: 'retry', id });
 
+const autoFederationSyncs = new Map<string, Promise<void>>();
+
+/**
+ * Garante de forma idempotente e dedupada que a federação esteja habilitada na sessão
+ * apenas quando a plataforma suportar/habilitar federação (evita POST 503 em dev local).
+ */
+export function ensureFederationEnabledForSession(firebaseUser: FirebaseUser): Promise<void> {
+  if (!firebaseUser.emailVerified && firebaseUser.email) {
+    return Promise.resolve();
+  }
+  const existing = autoFederationSyncs.get(firebaseUser.uid);
+  if (existing) return existing;
+
+  const task = (async () => {
+    try {
+      const status = await getFederationStatus(firebaseUser);
+      if (status.platformEnabled && !status.enabled) {
+        await changeFederation(firebaseUser, 'enable');
+      }
+    } catch {
+      // Silencioso: federação opcional não deve quebrar ou poluir a sessão.
+    }
+  })();
+
+  autoFederationSyncs.set(firebaseUser.uid, task);
+  return task;
+}
+
 export const getFollowers = (u: FirebaseUser, after?: string | null) =>
   chamar<{ items: FollowerItem[]; next: string | null }>(u, 'GET', `/api/ap/followers${after ? `?after=${encodeURIComponent(after)}` : ''}`);
 export const removeFollower = (u: FirebaseUser, actorId: string) => chamar<{ ok: true }>(u, 'POST', '/api/ap/followers', { action: 'remove', actorId });
