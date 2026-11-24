@@ -53,6 +53,7 @@ import { postsCollection } from '@/lib/services/postService';
 import { getPostById } from '@/lib/services/postReadService';
 import { canUserReplyToLoadedPost } from '@/lib/services/comments/commentReadService';
 import { siteConfig } from '@/config/site';
+import { notifyNavigationStart } from '@/components/layout/NavigationProgress';
 import CommentCard from './CommentCard';
 import { addCommentToPost } from '@/lib/services/comments/commentWriteActions';
 import {
@@ -456,9 +457,11 @@ function PostCard({
     }
 
     if (isRepostedComment) {
+        notifyNavigationStart();
         router.push(`/${locale}/post/${post.repostedComment!.parentPostId}?commentId=${post.repostedComment!.id}#focused-comment`);
         return;
     }
+    notifyNavigationStart();
     router.push(`/${locale}/post/${post.id}`);
   };
 

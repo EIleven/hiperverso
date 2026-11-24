@@ -1,7 +1,7 @@
 // src/components/layout/AppLayout.tsx
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo, cloneElement } from 'react';
+import React, { Suspense, useState, useEffect, useCallback, useMemo, cloneElement } from 'react';
 import type { ReactElement } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { SidebarProvider } from '@/components/ui/sidebar';
@@ -37,6 +37,13 @@ import { useHiperChatMode } from '@/hooks/useHiperChatMode';
 import HiperChatShell from './HiperChatShell';
 import { useHiperChatPreferences } from '@/hooks/useHiperChatPreferences';
 import { useAvisoSonoro } from '@/hooks/useAvisoSonoro';
+import {
+  NavigationWatcher,
+  NavigationProgressBar,
+  PageTransitionSkeleton,
+  notifyNavigationStart,
+  type NavigationFeedbackState,
+} from './NavigationProgress';
 
 const AppLayoutContentSkeleton: React.FC = () => (
   <div className="w-full min-w-0">
@@ -61,6 +68,10 @@ const AppLayout = ({ children }: AppLayoutProps) => {
   const [isCreateNewsDialogOpen, setIsCreateNewsDialogOpen] = useState(false);
   const [isManageFeedsDialogOpen, setIsManageFeedsDialogOpen] = useState(false);
   const [clientHasMounted, setClientHasMounted] = useState(false);
+  const [navFeedback, setNavFeedback] = useState<NavigationFeedbackState>({
+    isNavigating: false,
+    showLoadingPage: false,
+  });
 
   // Cor oficial da rede: se o usuário escolheu uma cor no perfil, respeita estritamente.
   // Se for visitante / não logado (ou sem cor definida), alterna dinamicamente
@@ -95,6 +106,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
       await serverLogoutUser();
       logout(); // This synchronously clears the state
       toast({ title: t('logoutSuccessTitle'), description: t('logoutSuccessDescription') });
+      notifyNavigationStart();
       router.push(`/${locale}/login`);
     } catch (error: any) {
       toast({
@@ -219,6 +231,10 @@ const AppLayout = ({ children }: AppLayoutProps) => {
 
   return (
     <>
+      <Suspense fallback={null}>
+        <NavigationWatcher onStateChange={setNavFeedback} />
+      </Suspense>
+      <NavigationProgressBar isNavigating={navFeedback.isNavigating} />
       <ScrollChrome />
       <LoginOrRegisterPromptDialog
         open={showLoginPrompt}
@@ -294,8 +310,12 @@ const AppLayout = ({ children }: AppLayoutProps) => {
               )}
               {!clientHasMounted || (!isAuthRoute && isLoadingCurrentUser && !currentUser) ? (
                 <AppLayoutContentSkeleton />
+              ) : navFeedback.showLoadingPage && !emConversaAberta ? (
+                <PageTransitionSkeleton />
               ) : (
-                childrenWithProps
+                <div key={pathname} className="hv-page-enter">
+                  {childrenWithProps}
+                </div>
               )}
             </main>
 

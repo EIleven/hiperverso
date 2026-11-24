@@ -16,6 +16,7 @@ import { performGlobalSearch, type SearchResult } from '@/lib/services/searchSer
 import { useDebounce } from '@/hooks/use-debounce';
 import { Loader2, Search, Hash, User as UserIcon, History, X, Globe, ExternalLink } from 'lucide-react';
 import { classifySearchQuery } from '@/lib/search/searchQueryParser';
+import { notifyNavigationStart } from '@/components/layout/NavigationProgress';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useLocale } from 'next-intl';
@@ -175,10 +176,12 @@ export default function GlobalSearch({ isExpanded, setIsExpanded, alwaysExpanded
       }
       const classified = classifySearchQuery(term);
       if (classified.kind === 'local-url') {
+        notifyNavigationStart();
         router.push(classified.path);
         return;
       }
       // Use router.push for client-side navigation without a full page reload.
+      notifyNavigationStart();
       router.push(`/${locale}/search?q=${encodeURIComponent(term)}`);
     }
   };
@@ -190,6 +193,7 @@ export default function GlobalSearch({ isExpanded, setIsExpanded, alwaysExpanded
     }
     if (term) addToHistory(term);
     // Use router.push for client-side navigation.
+    notifyNavigationStart();
     router.push(url);
     setSearchQuery('');
   };
