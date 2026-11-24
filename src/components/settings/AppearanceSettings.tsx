@@ -19,7 +19,13 @@ import { useTranslations } from 'next-intl';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { updateUserSettings } from '@/lib/services/userService';
 import { useToast } from '@/hooks/use-toast';
-import { PROFILE_ACCENT_PRESETS, isValidHexColor } from '@/lib/utils/themeColor';
+import {
+  PROFILE_ACCENT_PRESETS,
+  HIGH_CONTRAST_THEME,
+  isValidHexColor,
+  transitionDocumentAccentColor,
+} from '@/lib/utils/themeColor';
+import { switchThemeFluid } from '@/lib/utils/fluidTheme';
 import { cn } from '@/lib/utils';
 
 interface SettingsProps {
@@ -38,6 +44,12 @@ export default function AppearanceSettings({ user }: SettingsProps) {
 
   const handleSaveAccentColor = async (nextColor: string | null) => {
     setIsSavingColor(true);
+    const isHighContrast = theme === HIGH_CONTRAST_THEME;
+    transitionDocumentAccentColor(nextColor, {
+      highContrast: isHighContrast,
+      fallbackToDynamicOfficial: true,
+      durationMs: nextColor ? 360 : 480,
+    });
     try {
       await updateUserSettings(user.id, { accentColor: nextColor });
       if (nextColor) {
@@ -53,6 +65,11 @@ export default function AppearanceSettings({ user }: SettingsProps) {
           : 'A cor oficial da rede foi restaurada no seu perfil.',
       });
     } catch (error: any) {
+      transitionDocumentAccentColor(user.accentColor, {
+        highContrast: isHighContrast,
+        fallbackToDynamicOfficial: true,
+        durationMs: 320,
+      });
       toast({
         title: 'Erro ao salvar cor',
         description: error?.message || 'Não foi possível atualizar a cor do perfil.',
@@ -77,7 +94,7 @@ export default function AppearanceSettings({ user }: SettingsProps) {
           </p>
           <RadioGroup
             value={theme || 'dark'}
-            onValueChange={setTheme}
+            onValueChange={(nextTheme) => switchThemeFluid(setTheme, nextTheme)}
             className="grid grid-cols-1 sm:grid-cols-3 gap-4"
           >
             <Label htmlFor="light" className="border rounded-md p-4 flex flex-col items-center justify-center space-y-2 cursor-pointer [&:has([data-state=checked])]:border-primary">
@@ -146,7 +163,14 @@ export default function AppearanceSettings({ user }: SettingsProps) {
               <input
                 type="color"
                 value={selectedColor}
-                onChange={(e) => setSelectedColor(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setSelectedColor(next);
+                  transitionDocumentAccentColor(next, {
+                    highContrast: theme === HIGH_CONTRAST_THEME,
+                    durationMs: 220,
+                  });
+                }}
                 className="h-5 w-5 rounded-full border-0 bg-transparent p-0 cursor-pointer"
                 aria-label="Escolher cor personalizada"
               />

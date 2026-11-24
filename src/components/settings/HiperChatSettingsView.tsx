@@ -32,6 +32,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
+import { switchThemeFluid } from '@/lib/utils/fluidTheme';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -430,7 +431,7 @@ export default function HiperChatSettingsView({ user, onUpdated, onLogout }: Hip
               type="button"
               variant={theme === id ? 'default' : 'outline'}
               size="sm"
-              onClick={() => setTheme(id)}
+              onClick={() => switchThemeFluid(setTheme, id)}
               aria-pressed={theme === id}
               className="rounded-xl"
             >

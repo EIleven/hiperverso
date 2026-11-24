@@ -226,7 +226,6 @@ export default function LocaleLayout({
             attribute="class"
             defaultTheme="dark"
             enableSystem
-            disableTransitionOnChange
           >
             <AuthProvider>
               <CurrentUserProvider>

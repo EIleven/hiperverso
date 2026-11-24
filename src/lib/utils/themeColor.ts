@@ -81,7 +81,13 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   };
 }
 
-export function hexToHslComponents(hex: string): string | null {
+interface HslTriplet {
+  h: number;
+  s: number;
+  l: number;
+}
+
+function hexToHslValues(hex: string): HslTriplet | null {
   const rgb = hexToRgb(hex);
   if (!rgb) return null;
 
@@ -113,7 +119,31 @@ export function hexToHslComponents(hex: string): string | null {
     h /= 6;
   }
 
-  return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+  return {
+    h: Math.round(h * 360),
+    s: Math.round(s * 100),
+    l: Math.round(l * 100),
+  };
+}
+
+export function hexToHslComponents(hex: string): string | null {
+  const hsl = hexToHslValues(hex);
+  if (!hsl) return null;
+  return `${hsl.h} ${hsl.s}% ${hsl.l}%`;
+}
+
+function parseHslTriplet(value: string): HslTriplet | null {
+  const match = value.match(/^\s*(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%\s*$/);
+  if (!match) return null;
+  return {
+    h: Number(match[1]),
+    s: Number(match[2]),
+    l: Number(match[3]),
+  };
+}
+
+function formatHslTriplet(hsl: HslTriplet): string {
+  return `${Math.round(hsl.h)} ${Math.round(hsl.s)}% ${Math.round(hsl.l)}%`;
 }
 
 export function getContrastForegroundHsl(hex: string): string {
@@ -218,4 +248,141 @@ export function applyDocumentAccentColor(
       rootStyle.setProperty(key, record[key]);
     }
   }
+}
+
+let activeAccentAnimationFrame: number | null = null;
+
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+/**
+ * Aplica a cor de destaque no documento com interpolação suave em HSL,
+ * evitando saltos bruscos nas trocas de paleta oficial ou cor de perfil.
+ */
+export function transitionDocumentAccentColor(
+  accentColor?: string | null,
+  options?: { highContrast?: boolean; fallbackToDynamicOfficial?: boolean; durationMs?: number }
+): () => void {
+  if (activeAccentAnimationFrame !== null && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+    window.cancelAnimationFrame(activeAccentAnimationFrame);
+    activeAccentAnimationFrame = null;
+  }
+
+  if (
+    typeof document === 'undefined' ||
+    typeof window === 'undefined' ||
+    options?.highContrast ||
+    typeof window.requestAnimationFrame !== 'function' ||
+    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  ) {
+    applyDocumentAccentColor(accentColor, options);
+    return () => {};
+  }
+
+  const targetColor = isValidHexColor(accentColor)
+    ? accentColor
+    : (options?.fallbackToDynamicOfficial ? getOfficialDynamicColor().hex : null);
+
+  if (!targetColor) {
+    applyDocumentAccentColor(null, options);
+    return () => {};
+  }
+
+  const root = document.documentElement;
+  const rootStyle = root.style;
+  const rawCurrent =
+    rootStyle.getPropertyValue('--primary') || getComputedStyle(root).getPropertyValue('--primary');
+  const start = parseHslTriplet(rawCurrent);
+  const target = hexToHslValues(targetColor);
+
+  if (
+    !start ||
+    !target ||
+    (Math.abs(start.h - target.h) < 0.5 &&
+      Math.abs(start.s - target.s) < 0.5 &&
+      Math.abs(start.l - target.l) < 0.5)
+  ) {
+    applyDocumentAccentColor(targetColor, options);
+    return () => {};
+  }
+
+  const rawCurrentFg =
+    rootStyle.getPropertyValue('--primary-foreground') ||
+    getComputedStyle(root).getPropertyValue('--primary-foreground');
+  const startFg = parseHslTriplet(rawCurrentFg);
+  const targetFgStr = getContrastForegroundHsl(targetColor);
+  const targetFg = parseHslTriplet(targetFgStr);
+
+  const durationMs = Math.max(80, options?.durationMs ?? 600);
+  const startTime = performance.now();
+  let cancelled = false;
+
+  const dh = ((target.h - start.h + 540) % 360) - 180;
+  const ds = target.s - start.s;
+  const dl = target.l - start.l;
+
+  const ACCENT_COLOR_KEYS = [
+    '--primary',
+    '--accent',
+    '--ring',
+    '--sidebar-primary',
+    '--sidebar-accent',
+    '--sidebar-ring',
+  ] as const;
+
+  const ACCENT_FG_KEYS = [
+    '--primary-foreground',
+    '--accent-foreground',
+    '--sidebar-primary-foreground',
+    '--sidebar-accent-foreground',
+  ] as const;
+
+  const step = (now: number) => {
+    if (cancelled) return;
+    const rawProgress = Math.min(1, (now - startTime) / durationMs);
+    if (rawProgress >= 1) {
+      activeAccentAnimationFrame = null;
+      applyDocumentAccentColor(targetColor, options);
+      return;
+    }
+
+    const eased = easeInOutCubic(rawProgress);
+    const interpolated = formatHslTriplet({
+      h: (start.h + dh * eased + 360) % 360,
+      s: start.s + ds * eased,
+      l: start.l + dl * eased,
+    });
+
+    for (const key of ACCENT_COLOR_KEYS) {
+      rootStyle.setProperty(key, interpolated);
+    }
+
+    const fgValue =
+      startFg && targetFg
+        ? formatHslTriplet({
+            h: startFg.h + (targetFg.h - startFg.h) * eased,
+            s: startFg.s + (targetFg.s - startFg.s) * eased,
+            l: startFg.l + (targetFg.l - startFg.l) * eased,
+          })
+        : eased >= 0.5
+          ? targetFgStr
+          : rawCurrentFg.trim() || targetFgStr;
+
+    for (const key of ACCENT_FG_KEYS) {
+      rootStyle.setProperty(key, fgValue);
+    }
+
+    activeAccentAnimationFrame = window.requestAnimationFrame(step);
+  };
+
+  activeAccentAnimationFrame = window.requestAnimationFrame(step);
+
+  return () => {
+    cancelled = true;
+    if (activeAccentAnimationFrame !== null) {
+      window.cancelAnimationFrame(activeAccentAnimationFrame);
+      activeAccentAnimationFrame = null;
+    }
+  };
 }

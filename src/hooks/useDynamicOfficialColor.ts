@@ -1,9 +1,10 @@
 // src/hooks/useDynamicOfficialColor.ts
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   applyDocumentAccentColor,
+  transitionDocumentAccentColor,
   getOfficialDynamicColor,
   isValidHexColor,
   OFFICIAL_ROTATION_INTERVAL_MS,
@@ -35,18 +36,32 @@ export function useDynamicOfficialColor({
   const [currentColor, setCurrentColor] = useState<NetworkThemeColor>(() =>
     getOfficialDynamicColor()
   );
+  const isFirstApplyRef = useRef(true);
 
   useEffect(() => {
-    // 1. Aplicação imediata no documento HTML
-    applyDocumentAccentColor(userAccentColor, {
-      highContrast: isHighContrast,
-      fallbackToDynamicOfficial: true,
-    });
+    let cancelAccentTransition: (() => void) | null = null;
+
+    // 1. Aplicação imediata no primeiro carregamento; transições subsequentes são fluidas.
+    if (isFirstApplyRef.current) {
+      isFirstApplyRef.current = false;
+      applyDocumentAccentColor(userAccentColor, {
+        highContrast: isHighContrast,
+        fallbackToDynamicOfficial: true,
+      });
+    } else {
+      cancelAccentTransition = transitionDocumentAccentColor(userAccentColor, {
+        highContrast: isHighContrast,
+        fallbackToDynamicOfficial: true,
+        durationMs: 480,
+      });
+    }
 
     // Se estiver em alto contraste ou se o usuário escolheu uma cor própria,
     // não precisa do temporizador de rotação dinâmico da rede.
     if (isHighContrast || hasCustomAccent) {
-      return;
+      return () => {
+        cancelAccentTransition?.();
+      };
     }
 
     let intervalId: ReturnType<typeof setInterval> | null = null;
@@ -55,9 +70,11 @@ export function useDynamicOfficialColor({
     const refreshOfficialColor = () => {
       const next = getOfficialDynamicColor();
       setCurrentColor(next);
-      applyDocumentAccentColor(undefined, {
+      cancelAccentTransition?.();
+      cancelAccentTransition = transitionDocumentAccentColor(undefined, {
         highContrast: false,
         fallbackToDynamicOfficial: true,
+        durationMs: 1200,
       });
     };
 
@@ -83,6 +100,7 @@ export function useDynamicOfficialColor({
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      cancelAccentTransition?.();
       if (timeoutId) clearTimeout(timeoutId);
       if (intervalId) clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);

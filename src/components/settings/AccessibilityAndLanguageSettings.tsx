@@ -32,6 +32,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { useTheme } from 'next-themes';
+import { switchThemeFluid } from '@/lib/utils/fluidTheme';
 
 interface SettingsProps {
   user: User;
@@ -121,10 +122,10 @@ export default function AccessibilityAndLanguageSettings({ user }: SettingsProps
   const handleHighContrastToggle = (checked: boolean) => {
     setIsHighContrast(checked);
     if (checked) {
-      setTheme('high-contrast');
+      switchThemeFluid(setTheme, 'high-contrast');
     } else {
       // Revert to the default theme (e.g., 'dark') or a previously stored one
-      setTheme('dark'); 
+      switchThemeFluid(setTheme, 'dark'); 
     }
   };
 
