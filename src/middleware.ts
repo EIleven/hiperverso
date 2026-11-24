@@ -26,7 +26,11 @@ export default function middleware(request: NextRequest) {
     request.headers.get('purpose') === 'prefetch' ||
     request.headers.get('rsc') === '1';
 
-  if (!isNextPrefetchOrRsc) {
+  // Em desenvolvimento local, desabilita o bloqueio anti-bot para permitir QA/testes automatizados;
+  // em produção permanece sempre ativo.
+  const isDevelopment = process.env.NODE_ENV === 'development';
+
+  if (!isDevelopment && !isNextPrefetchOrRsc) {
     const ip =
       (request.headers.get('x-forwarded-for') || '').split(',')[0]?.trim() ||
       request.headers.get('x-real-ip') ||
