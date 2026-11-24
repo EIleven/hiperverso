@@ -16,6 +16,40 @@ import { getUser } from './userService';
 
 const HASHTAG_REGEX = /#([a-zA-Z0-9_áéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãõÃÕçÇ]+)/g;
 
+const TRENDING_CACHE_TTL_MS = 3 * 60 * 1000;
+const MAX_CACHE_ENTRIES = 20;
+
+type TrendingTopicEntry = { topic: string; count: number; topUsers: User[] };
+type TopHashtagEntry = { tag: string; count: number };
+
+const trendingTopicsCache = new Map<string, { value: TrendingTopicEntry[]; expiresAt: number }>();
+const trendingTopicsInFlight = new Map<string, Promise<TrendingTopicEntry[]>>();
+const topHashtagsCache = new Map<string, { value: TopHashtagEntry[]; expiresAt: number }>();
+const topHashtagsInFlight = new Map<string, Promise<TopHashtagEntry[]>>();
+
+function readTtlCache<T>(cache: Map<string, { value: T; expiresAt: number }>, key: string): T | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function writeTtlCache<T>(cache: Map<string, { value: T; expiresAt: number }>, key: string, value: T): void {
+  if (cache.size >= MAX_CACHE_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(key, { value, expiresAt: Date.now() + TRENDING_CACHE_TTL_MS });
+}
+
+export function invalidateHashtagCache(): void {
+  trendingTopicsCache.clear();
+  topHashtagsCache.clear();
+}
+
 /**
  * Calculates a time-weighted score for a post.
  * More recent posts get a higher score.
@@ -48,7 +82,31 @@ const calculateRelevanceScore = (
 export const getTrendingTopics = async (
     countLimit: number = 10,
     scanLimit: number = 200
-): Promise<{ topic: string; count: number; topUsers: User[] }[]> => {
+): Promise<TrendingTopicEntry[]> => {
+    const cacheKey = `${countLimit}:${scanLimit}`;
+    const cached = readTtlCache(trendingTopicsCache, cacheKey);
+    if (cached) return cached;
+
+    const existing = trendingTopicsInFlight.get(cacheKey);
+    if (existing) return existing;
+
+    const task = fetchTrendingTopicsUncached(countLimit, scanLimit)
+      .then((results) => {
+        if (results.length > 0) writeTtlCache(trendingTopicsCache, cacheKey, results);
+        return results;
+      })
+      .finally(() => {
+        trendingTopicsInFlight.delete(cacheKey);
+      });
+
+    trendingTopicsInFlight.set(cacheKey, task);
+    return task;
+};
+
+const fetchTrendingTopicsUncached = async (
+    countLimit: number,
+    scanLimit: number
+): Promise<TrendingTopicEntry[]> => {
     const hashtagScores: { [key: string]: number } = {};
     const hashtagCounts: { [key: string]: number } = {};
     const hashtagContributors: { [key: string]: { userId: string; score: number }[] } = {};
@@ -143,7 +201,28 @@ export const getTrendingTopics = async (
 };
 
 
-export const getTopHashtags = async (limit: number): Promise<{ tag: string, count: number }[]> => {
+export const getTopHashtags = async (limit: number): Promise<TopHashtagEntry[]> => {
+    const cacheKey = `top:${limit}`;
+    const cached = readTtlCache(topHashtagsCache, cacheKey);
+    if (cached) return cached;
+
+    const existing = topHashtagsInFlight.get(cacheKey);
+    if (existing) return existing;
+
+    const task = fetchTopHashtagsUncached(limit)
+      .then((results) => {
+        if (results.length > 0) writeTtlCache(topHashtagsCache, cacheKey, results);
+        return results;
+      })
+      .finally(() => {
+        topHashtagsInFlight.delete(cacheKey);
+      });
+
+    topHashtagsInFlight.set(cacheKey, task);
+    return task;
+};
+
+const fetchTopHashtagsUncached = async (limit: number): Promise<TopHashtagEntry[]> => {
     const hashtagCounts: { [key: string]: number } = {};
     const processedDocs = new Set<string>(); // To avoid double counting hashtags from the same post/comment
 

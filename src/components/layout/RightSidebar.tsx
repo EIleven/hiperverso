@@ -29,6 +29,34 @@ import { readRecommendationPreferences, REC_PREFS_EVENT } from '@/lib/recommenda
 type SidebarTopic = { topic: string; count: number; topUsers: User[] };
 
 const COLLAPSED_STORAGE_KEY = 'hiperverso:right-sidebar-collapsed';
+const ARTICLES_CACHE_TTL_MS = 2 * 60 * 1000;
+
+let cachedPublicArticles: { items: Post[]; expiresAt: number } | null = null;
+let articlesInFlight: Promise<Post[]> | null = null;
+
+async function fetchCachedPublicArticles(): Promise<Post[]> {
+  if (cachedPublicArticles && Date.now() <= cachedPublicArticles.expiresAt) {
+    return cachedPublicArticles.items;
+  }
+  if (articlesInFlight) return articlesInFlight;
+
+  articlesInFlight = fetchPaginatedPosts(null, 5, null, { feedContext: 'articles' })
+    .then((newsResponse) => {
+      const items = newsResponse.posts
+        .filter((item): item is Post => 'type' in item)
+        .slice(0, 5)
+        .map((item) => deepCopyPost(item)!);
+      if (items.length > 0) {
+        cachedPublicArticles = { items, expiresAt: Date.now() + ARTICLES_CACHE_TTL_MS };
+      }
+      return items;
+    })
+    .finally(() => {
+      articlesInFlight = null;
+    });
+
+  return articlesInFlight;
+}
 
 function readCollapsedState(): Record<string, boolean> {
   if (typeof window === 'undefined') return {};
@@ -128,18 +156,13 @@ export default function RightSidebar({ unreadNotifications = 0 }: RightSidebarPr
   const fetchSidebarContent = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [topics, newsResponse, usersResponse] = await Promise.all([
+      const [topics, articles, usersResponse] = await Promise.all([
         getTrendingTopics(8),
-        fetchPaginatedPosts(null, 5, null, { feedContext: 'articles' }),
+        fetchCachedPublicArticles(),
         recPrefs.enabled ? getSuggestedUsers(currentUserId, 3, recPrefs) : Promise.resolve([]),
       ]);
       setTrendingTopics(topics);
-      setTopNewsItems(
-        newsResponse.posts
-          .filter((item): item is Post => 'type' in item)
-          .slice(0, 5)
-          .map((item) => deepCopyPost(item)!),
-      );
+      setTopNewsItems(articles);
       setSuggestedUsers(usersResponse);
     } catch (error) {
       console.error('RightSidebar: Failed to fetch content:', error);
