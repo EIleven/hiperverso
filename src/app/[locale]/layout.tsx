@@ -2,7 +2,8 @@
 //home/user/studio/src/app/[locale]/layout.tsx
 import type { Metadata, Viewport } from 'next';
 import { notFound } from 'next/navigation';
-import { NextIntlClientProvider, useMessages } from 'next-intl';
+import { NextIntlClientProvider } from 'next-intl';
+import { getMessages } from 'next-intl/server';
 import React from 'react';
 
 import { Toaster } from "@/components/ui/toaster";
@@ -147,18 +148,19 @@ export const viewport: Viewport = {
 };
 
 
-export default function LocaleLayout({
+export default async function LocaleLayout({
   children,
-  params: { locale },
+  params,
 }: {
   children: React.ReactNode;
-  params: { locale: string };
+  params: Promise<{ locale: string }>;
 }) {
+  const { locale } = await params;
   // Validate that the incoming `locale` parameter is valid
   if (!locales.includes(locale as any)) notFound();
   
   // Receive messages provided in `i18n.ts`
-  const messages = useMessages();
+  const messages = await getMessages({ locale });
 
   const webSiteSchema: WithContext<WebSite> = {
     '@context': 'https://schema.org',
