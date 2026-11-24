@@ -76,7 +76,7 @@ export default function FediverseOnboardingBanner() {
           conecte sua conta Bluesky e escolha em cada post ou citação para onde quer enviar.
         </li>
         <li>
-          <strong className="text-foreground">Aba 🦑:</strong>{' '}
+          <strong className="text-foreground">Aba Principal:</strong>{' '}
           reúne só as pessoas da nossa rede, mantendo seu feed limpo e organizado.
         </li>
       </ul>

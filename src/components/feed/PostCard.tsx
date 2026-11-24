@@ -558,7 +558,7 @@ function PostCard({
         <Card
             ref={postCardRef}
             data-post-id={post.id}
-            className={cn("w-full rounded-none border-b border-x-0 overflow-hidden bg-card relative first:border-t", !isSinglePostView && "feed-card hover:bg-card/95 transition-colors duration-150 cursor-pointer", post.id === 'deleted-optimistically' && 'opacity-50 pointer-events-none')}
+            className={cn("w-full rounded-none border-t-0 border-x-0 border-b border-border/70 overflow-hidden bg-transparent relative", !isSinglePostView && "feed-card hover:bg-muted/20 transition-colors duration-150 cursor-pointer", post.id === 'deleted-optimistically' && 'opacity-50 pointer-events-none')}
             onClick={!isSinglePostView ? handleCardNavigation : undefined}
             onKeyDown={!isSinglePostView ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleCardNavigation(e); } : undefined}
             tabIndex={!isSinglePostView ? 0 : undefined}
@@ -587,7 +587,7 @@ function PostCard({
             )}
             {!isSinglePostView && post.category === 'news' && post.newsCategory && null}
 
-            <div className="p-3 md:p-4">
+            <div className="px-5 py-4">
               <div className={cn("flex w-full", isSinglePostView && !isRepostedComment ? "flex-col" : "flex-row space-x-3")}>
                   {isSinglePostView && !isRepostedComment ? (
                       <div className="flex items-start space-x-3 w-full mb-4">

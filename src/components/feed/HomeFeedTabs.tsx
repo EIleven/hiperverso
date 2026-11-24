@@ -71,7 +71,7 @@ export default function HomeFeedTabs({ newPostToPrepend, onPostPrepended }: Home
       defaultTabs.push({ id: 'following', name: 'Seguindo' });
     }
     if (!tabPreferences.hidden.includes('local_network')) {
-      defaultTabs.push({ id: 'local_network', name: '🦑' });
+      defaultTabs.push({ id: 'local_network', name: 'Principal' });
     }
     if (!tabPreferences.hidden.includes('explore')) {
       defaultTabs.push({ id: 'explore', name: 'Explorar' });
@@ -296,13 +296,19 @@ export default function HomeFeedTabs({ newPostToPrepend, onPostPrepended }: Home
     <FeedContainer onRefresh={handleRefresh} hasNewPosts={hasNewPosts}>
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
         {/* Abas fixas: logo abaixo do cabeçalho quando ele aparece e no topo quando ele some (`.chrome-sticky`, por CSS). */}
-        <div className="chrome-sticky sticky z-20 border-b border-border bg-background">
+        <div className="chrome-sticky chrome-surface sticky z-20 border-b border-border/70">
           <TabsList
-            className="grid w-full h-auto bg-background"
+            className="grid w-full h-[54px] rounded-none bg-transparent p-0"
             style={{ gridTemplateColumns: `repeat(${TABS_ORDER.length > 0 ? TABS_ORDER.length : 1}, minmax(0, 1fr))` }}
           >
               {TABS_ORDER.map(tab => (
-                <TabsTrigger key={tab.id} value={tab.id}>{tab.name}</TabsTrigger>
+                <TabsTrigger
+                  key={tab.id}
+                  value={tab.id}
+                  className="relative h-full rounded-none bg-transparent px-4 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-muted/35 hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:font-bold data-[state=active]:text-foreground data-[state=active]:shadow-none after:pointer-events-none after:absolute after:bottom-0 after:left-1/2 after:h-[3px] after:w-14 after:-translate-x-1/2 after:rounded-full after:bg-primary after:opacity-0 after:transition-all after:duration-200 data-[state=active]:after:opacity-100"
+                >
+                  {tab.name}
+                </TabsTrigger>
               ))}
           </TabsList>
         </div>
