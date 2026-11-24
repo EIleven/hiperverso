@@ -17,7 +17,7 @@ import { useUnreadNotificationsCount } from '@/hooks/features/notifications/useU
 import { ToastAction } from '@/components/ui/toast';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
-import { Home, TrendingUp, Bell, MessageSquare, Search, Newspaper, KeyRound } from 'lucide-react';
+import { Home, Bell, MessageSquare, Search } from 'lucide-react';
 
 import DesktopSidebar from './DesktopSidebar';
 import MobileBottomNavigationBar from './MobileBottomNavigationBar';
@@ -86,10 +86,8 @@ const AppLayout = ({ children }: AppLayoutProps) => {
   const navItems = [
     { href: `/${locale}`, label: t('nav.feed'), icon: Home, requiresAuth: false, showBadge: false },
     { href: `/${locale}/explore`, label: t('nav.explore'), icon: Search, requiresAuth: false, showBadge: false },
-    { href: `/${locale}/messages`, label: t('nav.messages'), icon: MessageSquare, requiresAuth: true, authHref: () => `/${locale}/messages`, showBadge: true },
     { href: `/${locale}/notifications`, label: t('nav.notifications'), icon: Bell, requiresAuth: true, authHref: () => `/${locale}/notifications`, showBadge: true },
-    { href: `/${locale}/breaknews`, label: 'Leitura limpa', icon: Newspaper, requiresAuth: true, showBadge: false },
-    { href: `/${locale}/keys`, label: 'Identidade P2P', icon: KeyRound, requiresAuth: true, showBadge: false },
+    { href: `/${locale}/messages`, label: t('nav.messages'), icon: MessageSquare, requiresAuth: true, authHref: () => `/${locale}/messages`, showBadge: true },
   ];
 
   const handleLogout = async () => {

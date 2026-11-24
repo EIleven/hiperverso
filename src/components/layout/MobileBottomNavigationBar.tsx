@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Search as SearchIcon, MessageSquare, Bell, User as UserIcon, LogIn, Bookmark } from 'lucide-react';
+import { User as UserIcon, LogIn } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -56,17 +56,17 @@ const MobileBottomNavigationBar: React.FC<MobileBottomNavigationBarProps> = ({
   const profileNavItem: NavItem & { isProfileLink: boolean } = currentUser
     ? { href: `/${locale}/profile/${currentUser.id}`, label: t('profile'), icon: UserIcon, requiresAuth: true, isProfileLink: true, authHref: (id) => `/${locale}/profile/${id}` }
     : { href: `/${locale}/login`, label: t('login'), icon: LogIn, requiresAuth: false, isProfileLink: true };
-    
-  // Add bookmarks item if user is logged in
-  const bookmarksItem = currentUser ? { href: `/${locale}/bookmarks`, label: 'Marcadores', icon: Bookmark, requiresAuth: true } : null;
 
-  const visibleNavItems = navItems.filter(item => !item.requiresAuth || !!currentUser);
-  
+  // Mantém a barra inferior limpa no padrão mobile (máx. 5 ações principais).
+  // Rotas secundárias (Marcadores, Leitura limpa, Identidade P2P) ficam no menu gaveta.
+  const visibleNavItems = navItems
+    .filter(item => !item.requiresAuth || !!currentUser)
+    .slice(0, 4);
+
   const allDisplayItems = [
     ...visibleNavItems,
-    ...(bookmarksItem ? [bookmarksItem] : []),
-    profileNavItem
-  ].filter(Boolean); // Filter out null bookmarksItem
+    profileNavItem,
+  ].filter(Boolean);
 
 
   return (
@@ -79,7 +79,7 @@ const MobileBottomNavigationBar: React.FC<MobileBottomNavigationBarProps> = ({
 
         if (isLoadingCurrentUser && (item.requiresAuth || (item as any).isProfileLink)) {
           return (
-            <div key={`${item.label}-skeleton-bottom-nav`} className="flex flex-col items-center justify-center p-1 w-1/5">
+            <div key={`${item.label}-skeleton-bottom-nav`} className="flex flex-1 flex-col items-center justify-center p-1">
               <Skeleton className="h-[36px] w-[36px] rounded-md" />
             </div>
           );
@@ -117,7 +117,7 @@ const MobileBottomNavigationBar: React.FC<MobileBottomNavigationBarProps> = ({
             asChild={!isEffectivelyDisabled}
             onClick={handleClick}
             className={cn(
-              "group flex items-center justify-center p-1 h-full w-1/5 min-w-0 hover:bg-transparent focus-visible:bg-transparent",
+              "group flex flex-1 items-center justify-center p-1 h-full min-w-0 hover:bg-transparent focus-visible:bg-transparent",
               isActive ? "text-primary" : "text-muted-foreground",
               "hover:text-primary transition-colors relative"
             )}
