@@ -36,7 +36,7 @@ export default function EmulatorBanner() {
       <div
         data-testid="emulator-banner"
         data-status="ok"
-        className="pointer-events-none fixed bottom-2 left-2 z-[2147483647] rounded bg-green-700 px-2 py-1 text-xs text-white"
+        className="sr-only"
       >
         Emuladores Firebase ativos
       </div>
