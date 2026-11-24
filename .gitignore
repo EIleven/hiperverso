@@ -78,11 +78,8 @@ yarn-error.log*
 # Backups da migração de mídia: contêm URLs antigas com token de download.
 # Nunca versionar. O padrão do script já salva fora do repositório (~/soberan-backups).
 .backup-midia/
-
-# Arquivos locais e logs temporarios (nunca versionar)
-*.jsonl
-.agent/
-brain/
-scratch/
-memory/
 backup-midia-*.jsonl
+
+# Artefatos de build do Android (regerados a cada build; nao pertencem ao historico)
+android/app/*/release/
+android/app/release/

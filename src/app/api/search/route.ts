@@ -14,11 +14,14 @@
 // Nada aqui consulta serviço de busca de fora, e nada daqui alimenta treinamento de modelo. A ordem vem de
 // src/lib/search/ranking.ts, que é auditável linha a linha e não tem termo comercial nenhum.
 import { NextResponse, type NextRequest } from 'next/server';
+import { enderecoNormalizado, remotoPodeAparecerNaBusca } from '@/lib/activitypub/consentimentoDoAtor';
 import { adminFirestore } from '@/lib/server/firebaseAdmin';
 import { requestIp, takeRateLimit } from '@/lib/server/requestAuth';
 import { linhaNormalizada, normalizar, tokens } from '@/lib/search/indiceDeTexto';
 import { ordenarPorRelevancia, trechoComDestaque, type DocumentoIndexado } from '@/lib/search/ranking';
 import { interpretar, passaNoFiltro, type ItemFiltravel } from '@/lib/search/operadores';
+import { dominioBloqueado } from '@/lib/fontes/bloqueio';
+import { COLECAO_FONTES } from '@/lib/fontes/registrarFonte';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -29,6 +32,8 @@ const CANDIDATOS_POSTS = 400;
 const CANDIDATOS_POR_TAG = 200;
 /** A consulta por TERMO tambem usa indice (searchTokens). E o que faz a busca alcancar o passado. */
 const CANDIDATOS_POR_TERMO = 300;
+/** Paginas externas candidatas por busca. O indice de Fontes e pequeno; nao precisa de janela grande. */
+const CANDIDATOS_WEB = 150;
 /** Teto do `array-contains-any` no Firestore. */
 const MAX_TERMOS_NA_CONSULTA = 30;
 const CANDIDATOS_COMENTARIOS = 300;
@@ -42,11 +47,16 @@ const JANELA_MS = 60_000;
 const json = (body: Record<string, unknown>, status = 200) =>
   NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 
-export type TipoDeResultado = 'post' | 'artigo' | 'comentario' | 'pessoa';
+export type TipoDeResultado = 'post' | 'artigo' | 'comentario' | 'pessoa' | 'web';
 
 export interface ResultadoDaBusca {
   id: string;
   tipo: TipoDeResultado;
+  /** Resultado da aba Fontes: o endereco real da pagina, para o link ir DIRETO ao site. */
+  url?: string;
+  /** O dominio, mostrado no cartao. Quem le precisa ver de onde veio antes de clicar. */
+  dominio?: string;
+  imagem?: string | null;
   /** Post pai, quando o resultado é um comentário: é o link para onde a pessoa vai. */
   postPaiId?: string;
   titulo?: string;
@@ -109,6 +119,18 @@ type Candidato = DocumentoIndexado &
     autorHandle?: string;
     autorAvatar?: string | null;
     sensivel?: boolean;
+    url?: string;
+    dominio?: string;
+    imagem?: string | null;
+    /** De alguém de OUTRO servidor (perfil `ap_` ou post/comentário federado). */
+    remoto?: boolean;
+    /** Dono do conteúdo, para ler o consentimento do perfil remoto. */
+    autorId?: string;
+    /** `remoteDiscoverable`/`remoteIndexable` do perfil remoto. Só `true` é sim. */
+    descobrivel?: boolean;
+    indexavel?: boolean;
+    /** A consulta é o endereço exato desta pessoa (`pessoa@servidor`). */
+    enderecoExato?: boolean;
   };
 
 export async function GET(request: NextRequest) {
@@ -161,7 +183,7 @@ export async function GET(request: NextRequest) {
   const termosNaConsulta = termos.slice(0, MAX_TERMOS_NA_CONSULTA);
 
   try {
-    const [posts, porTermo, porTag, comentarios, pessoas] = await Promise.all([
+    const [posts, porTermo, porTag, comentarios, pessoas, fontes] = await Promise.all([
       db
         .collection('posts')
         .where('visibility', '==', 'public')
@@ -206,6 +228,16 @@ export async function GET(request: NextRequest) {
         .get()
         .catch(() => null),
       db.collection('users').orderBy('followersCount', 'desc').limit(CANDIDATOS_PESSOAS).get().catch(() => null),
+      // Aba Fontes. Sem `orderBy`, de proposito: `array-contains-any` sozinho usa o indice automatico de campo
+      // unico e nao exige indice composto. A ordem quem da e o ranking, em memoria.
+      termosNaConsulta.length > 0
+        ? db
+            .collection(COLECAO_FONTES)
+            .where('searchTokens', 'array-contains-any', termosNaConsulta)
+            .limit(CANDIDATOS_WEB)
+            .get()
+            .catch(() => null)
+        : Promise.resolve(null),
     ]);
 
     alcance.janelaRecente = posts.size;
@@ -220,9 +252,12 @@ export async function GET(request: NextRequest) {
       const autor = (d.authorDetails ?? {}) as Record<string, unknown>;
       const titulo = texto(d.headline);
       const corpo = texto(d.text);
+      const autorId = texto(d.userId);
       candidatos.push({
         id: doc.id,
         tipo: d.category === 'news' ? 'artigo' : 'post',
+        remoto: d.isRemoteFediverse === true || autorId.startsWith('ap_'),
+        autorId,
         tags: lista(d.hashtags).map((h) => h.replace(/^#/, '').toLowerCase()),
         temMidia: d.hasMedia === true || (Array.isArray(d.media) && d.media.length > 0),
         temFonte: typeof d.sourceUrl === 'string' && d.sourceUrl.length > 0,
@@ -254,9 +289,12 @@ export async function GET(request: NextRequest) {
       if (!paiId) continue;
       const autor = (d.authorDetails ?? {}) as Record<string, unknown>;
       const corpo = texto(d.text);
+      const autorDoComentario = texto(d.userId);
       candidatos.push({
         id: doc.id,
         tipo: 'comentario',
+        remoto: d.isRemoteFediverse === true || autorDoComentario.startsWith('ap_'),
+        autorId: autorDoComentario,
         postPaiId: paiId,
         tags: lista(d.hashtags).map((h) => h.replace(/^#/, '').toLowerCase()),
         temMidia: d.hasMedia === true,
@@ -279,9 +317,13 @@ export async function GET(request: NextRequest) {
       const nome = texto(d.name);
       const handle = texto(d.username);
       const bio = texto(d.bio);
+      const pessoaRemota = d.isRemoteFediverse === true || doc.id.startsWith('ap_');
       candidatos.push({
         id: doc.id,
         tipo: 'pessoa',
+        remoto: pessoaRemota,
+        descobrivel: d.remoteDiscoverable === true,
+        enderecoExato: pessoaRemota && enderecoNormalizado(handle) === enderecoNormalizado(bruto),
         titulo: nome || handle,
         tags: [],
         corpoOriginal: bio,
@@ -297,16 +339,71 @@ export async function GET(request: NextRequest) {
         autorAvatar: texto(d.avatarUrl) || null,
       });
     }
+    for (const doc of fontes?.docs ?? []) {
+      const d = doc.data();
+      const host = texto(d.host);
+      // Bloqueio vale na LEITURA tambem: bloquear um dominio tem de tira-lo dos resultados na hora, e nao so
+      // impedir registros novos.
+      if (!host || dominioBloqueado(host)) continue;
+      const titulo = texto(d.titulo);
+      const descricao = texto(d.descricao);
+      candidatos.push({
+        id: doc.id,
+        tipo: 'web',
+        titulo: titulo || host,
+        corpoOriginal: descricao,
+        url: texto(d.url),
+        dominio: host,
+        imagem: texto(d.imagem) || null,
+        tokensTitulo: tokens(`${titulo} ${host}`),
+        tokensCorpo: tokens(descricao),
+        tituloNormalizado: titulo ? linhaNormalizada(titulo) : undefined,
+        linha: linhaNormalizada(`${titulo} ${descricao}`),
+        // `citacoes` e o unico sinal de relevancia deste indice, e e organico: quantas vezes a rede voltou a esta
+        // pagina. Nao ha, e nao vai haver, como pagar para subir.
+        curtidas: typeof d.citacoes === 'number' ? d.citacoes : 0,
+        criadoEm: paraMs(d.publicadoEm) ?? paraMs(d.vistaEm),
+      });
+    }
   } catch (error) {
     console.error('[busca] falha ao ler candidatos:', error);
     return json({ error: 'search-failed' }, 500);
   }
+
+  // CONSENTIMENTO DE QUEM É DE FORA. Perfil remoto só aparece na busca de pessoas com `discoverable` (ou pelo endereço
+  // exato); texto de post remoto só é achado por palavra com `indexable`. Busca EXPLÍCITA por #tag continua achando:
+  // quem marcou o post com a tag pediu para ser achado por ela (é a semântica do Mastodon). Ausente não é sim.
+  // O consentimento mora no perfil `ap_` do autor; lido em lote, uma vez por autor.
+  const autoresRemotos = Array.from(
+    new Set(candidatos.filter((c) => c.remoto && c.tipo !== 'pessoa' && c.autorId).map((c) => c.autorId as string)),
+  ).slice(0, 300);
+  const indexavelPorAutor = new Map<string, boolean>();
+  if (autoresRemotos.length > 0) {
+    const perfis = await db.getAll(...autoresRemotos.map((id) => db.collection('users').doc(id))).catch(() => []);
+    for (const perfil of perfis) indexavelPorAutor.set(perfil.id, perfil.data()?.remoteIndexable === true);
+  }
+  const buscaExplicitaPorTag = avancada.tags.length > 0 || bruto.trim().startsWith('#');
+  const tagsExplicitas = buscaExplicitaPorTag
+    ? (avancada.tags.length > 0 ? avancada.tags : [bruto.trim()]).map((t) => t.replace(/^#/, '').toLowerCase())
+    : [];
 
   // FILTRO antes de RANKING, de proposito: filtro diz SE o item entra, ranking diz em que ordem. Misturar os dois
   // produz "filtro" que na verdade so empurra o item para baixo -- e ai a pessoa ve o que pediu para nao ver.
   const agora = Date.now();
   const filtrados = candidatos.filter((c) => {
     if (semSensivel && c.sensivel) return false;
+    if (
+      !remotoPodeAparecerNaBusca({
+        tipo: c.tipo,
+        remoto: c.remoto === true,
+        descobrivel: c.descobrivel,
+        indexavel: c.autorId ? indexavelPorAutor.get(c.autorId) === true : false,
+        enderecoExato: c.enderecoExato,
+        casouPorTagExplicita: buscaExplicitaPorTag && (c.tags ?? []).some((t) => tagsExplicitas.includes(t)),
+      })
+    ) {
+      return false;
+    }
     return passaNoFiltro(
       { tipo: c.tipo, autorHandle: c.autorHandle, tags: c.tags, criadoEm: c.criadoEm, temMidia: c.temMidia, temFonte: c.temFonte, linha: c.linha },
       avancada,
@@ -337,6 +434,9 @@ export async function GET(request: NextRequest) {
       ...(x.item.titulo ? { titulo: x.item.titulo } : {}),
       trecho,
       marcas,
+      ...(x.item.url ? { url: x.item.url } : {}),
+      ...(x.item.dominio ? { dominio: x.item.dominio } : {}),
+      ...(x.item.imagem ? { imagem: x.item.imagem } : {}),
       autorNome: x.item.autorNome,
       autorHandle: x.item.autorHandle,
       autorAvatar: x.item.autorAvatar ?? null,
@@ -350,6 +450,7 @@ export async function GET(request: NextRequest) {
   const artigos = porTipo('artigo').slice(0, POR_ABA).map(empacotar);
   const comentarios = porTipo('comentario').slice(0, POR_ABA).map(empacotar);
   const pessoas = porTipo('pessoa').slice(0, POR_ABA).map(empacotar);
+  const web = porTipo('web').slice(0, POR_ABA).map(empacotar);
 
   return json({
     consulta: {
@@ -360,7 +461,7 @@ export async function GET(request: NextRequest) {
       // limitada a janela recente -- ou o indice nao existe, ou os posts ainda nao tem searchTokens.
       alcance,
     },
-    resultados: { posts, artigos, comentarios, pessoas },
+    resultados: { posts, artigos, comentarios, pessoas, web },
     // As contagens são o tamanho DAS LISTAS DEVOLVIDAS. Contar uma coisa e devolver outra era exatamente o bug da
     // aba com número e lista vazia: o número vinha do serviço e a lista passava ainda por filtros na tela.
     contagens: {
@@ -368,6 +469,7 @@ export async function GET(request: NextRequest) {
       artigos: artigos.length,
       comentarios: comentarios.length,
       pessoas: pessoas.length,
+      web: web.length,
     },
   });
 }

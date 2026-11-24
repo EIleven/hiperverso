@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- App de conversas. O esquema de URL tem de bater com o applicationId deste sabor, senão o retorno do login
+     externo (Google, Fediverso, Atmosfera) volta para o app errado. -->
+<resources>
+    <string name="app_name">HiperChat</string>
+    <string name="title_activity_main">HiperChat</string>
+    <string name="package_name">app.hiperverso.chat</string>
+    <string name="custom_url_scheme">app.hiperverso.chat</string>
+</resources>

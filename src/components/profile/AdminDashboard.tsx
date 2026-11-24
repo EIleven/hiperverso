@@ -595,6 +595,12 @@ export default function AdminDashboard({ activeUser }: AdminDashboardProps) {
     void loadStaff();
   };
 
+  const handleUserDeleted = (deletedUserId: string) => {
+    setUserSearchResults((prev) => prev.filter((u) => u.id !== deletedUserId));
+    setUserToManage(null);
+    void loadStaff();
+  };
+
   const handleIgnoreReport = async (reportId: string) => {
     try {
       await ignoreReport(reportId);
@@ -669,6 +675,7 @@ export default function AdminDashboard({ activeUser }: AdminDashboardProps) {
             if (!isOpen) setUserToManage(null);
           }}
           onUserUpdated={handleUserUpdated}
+          onUserDeleted={handleUserDeleted}
         />
       )}
 

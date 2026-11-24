@@ -1,4 +1,3 @@
-
 {
   "AppLayout": {
     "logoutSuccessTitle": "Sessão Encerrada",
@@ -847,11 +846,11 @@
       "analytics": {
         "title": "Medição de uso",
         "description": "Ajudam a entender quais páginas são usadas e onde a rede falha. Desligados até você aceitar."
-      },
-      "marketing": {
-        "title": "Zero Publicidade (Apoio via Pix)",
-        "description": "Não trabalhamos com publicidade nem vendemos dados. Nossa rede se mantém independente com o apoio voluntário da comunidade via Pix."
       }
+    },
+    "zeroAds": {
+      "title": "Zero Publicidade (Apoio via Pix)",
+      "description": "Não trabalhamos com publicidade nem vendemos dados. Nossa rede se mantém independente com o apoio voluntário da comunidade via Pix."
     }
   },
   "AuthAction": {

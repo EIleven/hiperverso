@@ -1,4 +1,4 @@
-# **App Name**: Exe. Lula (HiperVerso)
+# **App Name**: Echo
 
 ## Core Features:
 

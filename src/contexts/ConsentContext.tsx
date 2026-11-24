@@ -59,7 +59,6 @@ export function ConsentProvider({ children }: { children: ReactNode }) {
       decision,
       needsDecision: decisionIsMissing(decision),
       analytics: granted.analytics,
-      marketing: granted.marketing,
       isReady,
       decide,
       acceptAll,

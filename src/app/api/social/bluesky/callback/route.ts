@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { siteConfig } from '@/config/site';
 import { loginErrorUrl } from '@/lib/auth/loginErrors';
 import { getBlueskyOAuthClient } from '@/lib/server/blueskyOAuth';
-import { createLoginTicket, provisionOrLoginFederatedUser } from '@/lib/server/federatedAuth';
+import { createLoginTicket, FederatedSignupClosedError, provisionOrLoginFederatedUser } from '@/lib/server/federatedAuth';
 import { normalizeFederatedConsent, syncBlueskyData } from '@/lib/server/federatedSync';
 import { consumeLinkState, peekLinkState, saveConnection } from '@/lib/server/socialStore';
 import { socialOrigin, socialSettingsUrl } from '@/lib/server/socialConfig';
@@ -95,6 +95,9 @@ export async function GET(request: Request) {
     });
     return NextResponse.redirect(socialSettingsUrl(locale, 'connected', 'bluesky'));
   } catch (error) {
+    if (error instanceof FederatedSignupClosedError) {
+      return NextResponse.redirect(`${socialOrigin()}/${locale}/login?auth_error=signup_closed`);
+    }
     const reason = error instanceof Error ? error.message : String(error);
     console.error('Bluesky OAuth callback failed:', reason);
     const cookieStore = await cookies().catch(() => null);

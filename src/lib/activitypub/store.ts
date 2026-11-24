@@ -124,6 +124,12 @@ export type RemoteActorRecord = {
   summary: string;
   movedTo: string | null;
   state: 'ok' | 'gone';
+  /** Desde quando a origem responde 404/410 para este ator. Sem isto, um segundo 404 não teria como ser "confirmado". */
+  goneSinceMs?: number;
+  /** `toot:discoverable` do ator: aceita aparecer em explorar/sugestões/busca de pessoas. Só `true` é sim. */
+  discoverable?: boolean;
+  /** `toot:indexable` do ator: aceita que o texto dos posts entre em busca de texto livre. Só `true` é sim. */
+  indexable?: boolean;
   fetchedAtMs: number;
   /** Última vez que forçamos nova busca por causa de falha de assinatura. Limita a amplificação. */
   lastForcedRefreshAtMs: number;
@@ -212,6 +218,8 @@ export type DomainHealth = {
   consecutiveRefusals?: number;
   /** Ate quando a entrega para este dominio esta pausada por RECUSA (nao por queda). */
   refusedUntilMs?: number;
+  /** Classe da ultima falha de infraestrutura (ex.: 'dns' para EAI_AGAIN/ENOTFOUND). Serve ao painel de dominios mortos. */
+  lastFailureClass?: string;
 };
 
 export type AuditEntry = {

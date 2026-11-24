@@ -26,6 +26,8 @@ export interface ResultadosDaBusca {
   latest: Post[];
   articles: Post[];
   comments: ResultadoDaBusca[];
+  /** Paginas de fora que a rede citou. Vazio quando a pessoa desligou os resultados da Web. */
+  web: ResultadoDaBusca[];
   people: User[];
   feeds: { tag: string; count: number }[];
   counts: {
@@ -33,6 +35,7 @@ export interface ResultadosDaBusca {
     latest: number;
     articles: number;
     comments: number;
+    web: number;
     people: number;
     feeds: number;
   };
@@ -45,9 +48,10 @@ const VAZIO: ResultadosDaBusca = {
   latest: [],
   articles: [],
   comments: [],
+  web: [],
   people: [],
   feeds: [],
-  counts: { top: 0, latest: 0, articles: 0, comments: 0, people: 0, feeds: 0 },
+  counts: { top: 0, latest: 0, articles: 0, comments: 0, web: 0, people: 0, feeds: 0 },
   termos: [],
 };
 
@@ -85,6 +89,7 @@ interface RespostaDaApi {
     posts?: ResultadoDaBusca[];
     artigos?: ResultadoDaBusca[];
     comentarios?: ResultadoDaBusca[];
+    web?: ResultadoDaBusca[];
   };
 }
 
@@ -98,7 +103,7 @@ interface RespostaDaApi {
 export const getSearchResultsWithCounts = async (
   query: string,
   activeUserId: string | null = null,
-  opcoes?: { mostrarSensivel?: boolean }
+  opcoes?: { mostrarSensivel?: boolean; mostrarWeb?: boolean }
 ): Promise<ResultadosDaBusca> => {
   const consulta = (query || '').trim();
   if (consulta.length < 2) return VAZIO;
@@ -119,6 +124,8 @@ export const getSearchResultsWithCounts = async (
 
     const ordenados = respostaApi?.resultados;
     const comments = ordenados?.comentarios ?? [];
+    // A aba Web so aparece se a pessoa quis. A escolha e do aparelho (Configuracoes > Busca).
+    const web = opcoes?.mostrarWeb === false ? [] : ordenados?.web ?? [];
     const idsDePost = [...(ordenados?.posts ?? []), ...(ordenados?.artigos ?? [])];
 
     // Uma leitura por item que REALMENTE vai aparecer (dezenas), em vez de uma por candidato (centenas).
@@ -140,6 +147,7 @@ export const getSearchResultsWithCounts = async (
       latest,
       articles,
       comments,
+      web,
       people,
       feeds,
       // Contagem = o que foi mesmo montado para a tela. Nunca uma estimativa de outro lugar.
@@ -148,6 +156,7 @@ export const getSearchResultsWithCounts = async (
         latest: latest.length,
         articles: articles.length,
         comments: comments.length,
+        web: web.length,
         people: people.length,
         feeds: feeds.length,
       },

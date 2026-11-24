@@ -1,7 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
+<!-- Valores comuns. Cada sabor sobrepõe nome, pacote e esquema em src/<sabor>/res/values/strings.xml. -->
 <resources>
-    <string name="app_name">Exe. Lula</string>
-    <string name="title_activity_main">Exe. Lula</string>
-    <string name="package_name">com.soberan.app</string>
-    <string name="custom_url_scheme">com.soberan.app</string>
+    <string name="app_name">HiperVerso</string>
+    <string name="title_activity_main">HiperVerso</string>
+    <string name="package_name">app.hiperverso</string>
+    <string name="custom_url_scheme">app.hiperverso</string>
 </resources>

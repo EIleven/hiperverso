@@ -5,6 +5,7 @@ import React, { useState, useEffect } from 'react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { getSearchResultsWithCounts, type ResultadosDaBusca } from '@/lib/services/searchService';
 import ResultadoDeComentario from './ResultadoDeComentario';
+import ResultadoDeFonte from './ResultadoDeFonte';
 import { usePreferenciasDeBusca } from '@/hooks/usePreferenciasDeBusca';
 import type { Post, User } from '@/lib/types';
 import FeedList from '@/components/feed/FeedList';
@@ -37,7 +38,7 @@ interface SearchResultsTabsProps {
   query: string;
 }
 
-type SearchTab = 'top' | 'latest' | 'people' | 'comments' | 'feeds' | 'articles';
+type SearchTab = 'top' | 'latest' | 'people' | 'comments' | 'web' | 'feeds' | 'articles';
 
 const SearchSkeleton = () => (
     <div className="space-y-4">
@@ -73,6 +74,7 @@ export default function SearchResultsTabs({ query }: SearchResultsTabsProps) {
   const { currentUser } = useCurrentUser();
   const { preferencias: prefsDeBusca } = usePreferenciasDeBusca(currentUser?.id);
   const mostrarSensivel = !prefsDeBusca.filtrarSensivel;
+  const mostrarWeb = prefsDeBusca.resultadosWeb;
   
   useEffect(() => {
     // Reset results and fetch everything when query changes
@@ -90,7 +92,7 @@ export default function SearchResultsTabs({ query }: SearchResultsTabsProps) {
             const shouldLookupRemote =
               classified.kind === 'fediverse-handle' || classified.kind === 'fediverse-profile-url';
             const [data, fediRes] = await Promise.all([
-              getSearchResultsWithCounts(query, currentUser?.id, { mostrarSensivel }),
+              getSearchResultsWithCounts(query, currentUser?.id, { mostrarSensivel, mostrarWeb }),
               shouldLookupRemote
                 ? fetch(`/api/ap/lookup?q=${encodeURIComponent(trimmed)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
                 : Promise.resolve(null),
@@ -107,7 +109,7 @@ export default function SearchResultsTabs({ query }: SearchResultsTabsProps) {
         }
     };
     fetchAllResultsAndCounts();
-  }, [query, currentUser, mostrarSensivel]);
+  }, [query, currentUser, mostrarSensivel, mostrarWeb]);
 
   const handleFollowStateChange = (updatedUser: User) => {
     setResults((prev) => {
@@ -211,6 +213,15 @@ export default function SearchResultsTabs({ query }: SearchResultsTabsProps) {
                 </div>
             );
         }
+        case 'web':
+            // Cartao com o dominio visivel e link DIRETO ao site -- sem redirecionador que registre o clique.
+            return (
+                <div className="space-y-2">
+                    {(results?.web ?? []).map((r) => (
+                        <ResultadoDeFonte key={r.id} resultado={r} />
+                    ))}
+                </div>
+            );
         case 'comments':
             // Comentario tem cartao proprio: trecho, autor e link para o post pai. Antes ia cru para a lista do
             // feed, que espera post.
@@ -267,6 +278,8 @@ export default function SearchResultsTabs({ query }: SearchResultsTabsProps) {
           <TabTriggerWithCount value="latest" label={t('latest')} />
           <TabTriggerWithCount value="people" label={t('people')} />
           <TabTriggerWithCount value="comments" label="Comentários" />
+          {/* A aba Fontes some quando a pessoa desliga os resultados da Web em Configuracoes > Busca. */}
+          {mostrarWeb && <TabTriggerWithCount value="web" label="Fontes" />}
           <TabTriggerWithCount value="feeds" label={t('feeds')} />
           <TabTriggerWithCount value="articles" label={t('articles')} />
         </TabsList>

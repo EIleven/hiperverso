@@ -82,6 +82,10 @@ export type User = {
   followRequested?: boolean;
   /** Perfil do Fediverso que aprova seguidores manualmente (`manuallyApprovesFollowers`): seguir vira "Pedir para seguir". Ausente = não se sabe. */
   remoteManuallyApprovesFollowers?: boolean | null;
+  /** Só para perfis do Fediverso: `toot:discoverable` lido do ator. Só `true` deixa aparecer em explorar, sugestões e busca de pessoas. */
+  remoteDiscoverable?: boolean;
+  /** Só para perfis do Fediverso: `toot:indexable` lido do ator. Só `true` deixa o texto dos posts ser achado por palavra. */
+  remoteIndexable?: boolean;
   federatedLoginProvider?: 'fediverse' | 'bluesky';
   federatedLoginHandle?: string;
   isFollowedBy?: boolean;

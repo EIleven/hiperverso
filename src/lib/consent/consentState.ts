@@ -9,14 +9,19 @@
  * Categorias do aviso. `necessary` não é escolha: sem ela não há login, idioma, tema nem proteção contra fraude
  * (LGPD, art. 7º, V e IX — execução do serviço pedido pelo titular e legítimo interesse em segurança).
  */
-export type ConsentCategory = 'necessary' | 'analytics' | 'marketing';
+export type ConsentCategory = 'necessary' | 'analytics';
 
-/** O que a pessoa escolheu para as categorias opcionais. */
+/**
+ * O que a pessoa escolheu para as categorias opcionais.
+ *
+ * Publicidade NÃO é uma delas, e não é por omissão: em 2026-11-19 o código de anúncios foi removido da rede. Antes
+ * disso existia uma categoria `marketing` que ninguém conseguia ligar pela tela — mas o botão "Aceitar tudo" a
+ * marcava, e ela virava `ad_storage: granted` no Consent Mode do Google. O aviso dizia "zero publicidade" enquanto
+ * o sinal dizia o contrário. Sem categoria não há como a contradição voltar.
+ */
 export interface ConsentChoice {
   /** Medição de uso da rede (Google Analytics via Tag Manager). */
   analytics: boolean;
-  /** Publicidade e remarketing. Hoje a rede não exibe anúncios, mas a categoria existe no aviso. */
-  marketing: boolean;
 }
 
 export interface ConsentDecision extends ConsentChoice {
@@ -30,13 +35,13 @@ export interface ConsentDecision extends ConsentChoice {
  * Suba este número SEMPRE que o texto do aviso ou as categorias mudarem: toda decisão anterior deixa de valer e a
  * pergunta volta. Consentimento dado para outro texto não cobre um tratamento novo (LGPD, art. 8º, § 4º).
  */
-export const CONSENT_NOTICE_VERSION = 1;
+export const CONSENT_NOTICE_VERSION = 2;
 
 /** Chave no localStorage. Mesmo prefixo das outras preferências locais (`soberan_*`). */
 export const CONSENT_STORAGE_KEY = 'soberan_consent';
 
-export const ACCEPT_ALL: ConsentChoice = { analytics: true, marketing: true };
-export const REJECT_ALL: ConsentChoice = { analytics: false, marketing: false };
+export const ACCEPT_ALL: ConsentChoice = { analytics: true };
+export const REJECT_ALL: ConsentChoice = { analytics: false };
 
 /**
  * Lê o que estava guardado. Devolve `null` para qualquer coisa que não seja uma decisão íntegra — texto vazio, JSON
@@ -52,14 +57,15 @@ export function parseStoredConsent(raw: string | null | undefined): ConsentDecis
   }
   if (typeof parsed !== 'object' || parsed === null) return null;
   const candidate = parsed as Record<string, unknown>;
-  if (typeof candidate.analytics !== 'boolean' || typeof candidate.marketing !== 'boolean') return null;
+  if (typeof candidate.analytics !== 'boolean') return null;
+  // Um registro antigo traz `marketing`. Ele não é lido nem recusado: é ignorado. Recusar invalidaria a decisão de
+  // quem já respondeu, e o que ela escolheu para MEDIÇÃO continua valendo.
   if (typeof candidate.version !== 'number' || !Number.isFinite(candidate.version)) return null;
   if (typeof candidate.decidedAt !== 'string' || candidate.decidedAt.trim() === '') return null;
   return {
     version: candidate.version,
     decidedAt: candidate.decidedAt,
     analytics: candidate.analytics,
-    marketing: candidate.marketing,
   };
 }
 
@@ -78,9 +84,7 @@ export function needsDecision(decision: ConsentDecision | null): boolean {
 
 /** O que foi de fato concedido. Sem decisão válida, nada opcional é concedido. */
 export function grantedChoice(decision: ConsentDecision | null): ConsentChoice {
-  return isCurrentDecision(decision)
-    ? { analytics: decision.analytics, marketing: decision.marketing }
-    : REJECT_ALL;
+  return isCurrentDecision(decision) ? { analytics: decision.analytics } : REJECT_ALL;
 }
 
 export type ConsentSignal = 'granted' | 'denied';
@@ -99,19 +103,24 @@ export interface ConsentModeSignals {
 const signal = (granted: boolean): ConsentSignal => (granted ? 'granted' : 'denied');
 
 /**
- * Traduz a decisão para os sinais do Consent Mode v2. `functionality_storage` e `security_storage` ficam concedidos
- * porque são os estritamente necessários (manter a sessão, lembrar idioma e tema, barrar abuso) e não dependem de
- * aceite. `personalization_storage` acompanha a publicidade: personalizar conteúdo por perfil não é necessário.
+ * Traduz a decisão para os sinais do Consent Mode v2.
+ *
+ * Os quatro sinais de publicidade são NEGADOS SEMPRE, e não há caminho que os conceda: a rede não exibe anúncios e
+ * não tem código para isso. Não dependem de escolha porque não há escolha a fazer -- conceder `ad_storage` numa rede
+ * sem anúncio seria dar ao Google uma permissão que nada aqui usa.
+ *
+ * `functionality_storage` e `security_storage` ficam concedidos porque são os estritamente necessários (manter a
+ * sessão, lembrar idioma e tema, barrar abuso) e não dependem de aceite.
  */
 export function consentModeSignals(decision: ConsentDecision | null): ConsentModeSignals {
-  const { analytics, marketing } = grantedChoice(decision);
+  const { analytics } = grantedChoice(decision);
   return {
-    ad_storage: signal(marketing),
-    ad_user_data: signal(marketing),
-    ad_personalization: signal(marketing),
+    ad_storage: 'denied',
+    ad_user_data: 'denied',
+    ad_personalization: 'denied',
     analytics_storage: signal(analytics),
     functionality_storage: 'granted',
-    personalization_storage: signal(marketing),
+    personalization_storage: 'denied',
     security_storage: 'granted',
   };
 }
@@ -126,8 +135,7 @@ export function defaultConsentModeSignals(): ConsentModeSignals {
  * mandar sinais negados ao GTM: sem aceite, o script nem é pedido ao googletagmanager.com.
  */
 export function shouldLoadGtm(decision: ConsentDecision | null): boolean {
-  const { analytics, marketing } = grantedChoice(decision);
-  return analytics || marketing;
+  return grantedChoice(decision).analytics;
 }
 
 /** O Analytics do Firebase (Google Analytics) depende da categoria de medição. */
@@ -163,6 +171,5 @@ export function decisionFrom(choice: ConsentChoice, now: Date = new Date()): Con
     version: CONSENT_NOTICE_VERSION,
     decidedAt: now.toISOString(),
     analytics: choice.analytics === true,
-    marketing: choice.marketing === true,
   };
 }

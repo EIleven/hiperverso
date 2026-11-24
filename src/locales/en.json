@@ -1,4 +1,3 @@
-
 {
   "AppLayout": {
     "logoutSuccessTitle": "Logged Out",
@@ -847,11 +846,11 @@
       "analytics": {
         "title": "Usage measurement",
         "description": "They help us understand which pages are used and where the network fails. Off until you accept."
-      },
-      "marketing": {
-        "title": "Zero Advertising (Pix Support)",
-        "description": "We do not run ads or sell user data. Our network stays independent through voluntary community support via Pix."
       }
+    },
+    "zeroAds": {
+      "title": "Zero Advertising (Pix Support)",
+      "description": "We do not run ads or sell user data. Our network stays independent through voluntary community support via Pix."
     }
   },
   "AuthAction": {

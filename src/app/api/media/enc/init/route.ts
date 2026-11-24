@@ -13,7 +13,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { generateMediaId, privateMediaPath } from '@/lib/media/mediaId';
 import { LIMITE_MIDIA_PROTEGIDA, tamanhoCifrado } from '@/lib/crypto/e2eeMediaChunks';
 import { encryptedMediaPath, isVideoDurationAllowed } from '@/lib/media/videoPolicy';
-import { adminFirestore } from '@/lib/server/firebaseAdmin';
+import { adminBucket, adminFirestore } from '@/lib/server/firebaseAdmin';
 import { requestIp, takeRateLimit, verifyRequestMember } from '@/lib/server/requestAuth';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +28,8 @@ const json = (body: Record<string, unknown>, status: number) =>
   NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 
 interface InitBody {
+  /** Id devolvido pelo init: fecha o envio e APAGA o token permanente do objeto. */
+  finalizar?: unknown;
   /** Tamanho do arquivo CIFRADO que será enviado. */
   size?: unknown;
   /** Duração lida no aparelho, quando o contêiner entrega. Mesmo teto do vídeo comum. */
@@ -53,6 +55,34 @@ export async function POST(request: NextRequest) {
     body = (await request.json()) as InitBody;
   } catch {
     return json({ error: 'invalid-request' }, 400);
+  }
+
+  // ── Fechamento do envio ──
+  // O SDK Web do Firebase grava `firebaseStorageDownloadTokens` no objeto NO MOMENTO DO UPLOAD, mesmo sem ninguem
+  // chamar getDownloadURL(). Esse token e uma URL publica permanente que nao passa pela autorizacao do /mp e nao
+  // se revoga tirando acesso -- foi exatamente o defeito que a rodada de midia de 2026-11-11 corrigiu em 19
+  // objetos. O envio cifrado precisa do protocolo retomavel (sao ate 200 MB), entao o token e apagado aqui, pelo
+  // servidor, assim que o upload termina.
+  if (typeof body.finalizar === 'string' && body.finalizar) {
+    const mediaId = body.finalizar;
+    const doc = await adminFirestore().collection('media').doc(mediaId).get();
+    const dados = doc.data();
+    if (!doc.exists || !dados || dados.ownerUid !== uid) return json({ error: 'not-found' }, 404);
+    try {
+      const objeto = adminBucket().file(String(dados.storagePath));
+      const [meta] = await objeto.getMetadata();
+      await objeto.setMetadata({
+        metadata: { ...(meta.metadata ?? {}), firebaseStorageDownloadTokens: null },
+      });
+      const tamanho = Number(meta.size ?? 0);
+      if (Number.isFinite(tamanho) && tamanho > 0) {
+        await doc.ref.update({ size: tamanho, updatedAt: FieldValue.serverTimestamp() });
+      }
+    } catch (error) {
+      console.error('[enc init] falha ao fechar o envio:', error);
+      return json({ error: 'finalize-failed' }, 500);
+    }
+    return json({ mediaId, finalizado: true }, 200);
   }
 
   const size = Number(body.size);

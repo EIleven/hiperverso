@@ -30,6 +30,10 @@ interface RemoteProfileResponse {
   nativePosts: Post[];
   isFollowing?: boolean;
   callerFederationEnabled?: boolean;
+  /** Ninguém daqui segue: os posts não foram buscados na origem. */
+  postsSoComSeguidor?: boolean;
+  /** A origem recusou (401/403) a leitura dos posts. */
+  postsRestritos?: boolean;
 }
 
 const REMOTE_PROFILE_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -41,6 +45,9 @@ const MENSAGENS_DE_ERRO: Record<string, string> = {
   'ator-invalido': 'O servidor deste perfil respondeu com dados inconsistentes, e por segurança não mostramos o perfil.',
   'instancia-bloqueada': 'Este servidor está bloqueado.',
   'plataforma-desligada': 'O Fediverso está desligado no momento.',
+  'origem-recusou': 'O servidor deste perfil não permite que o HiperVerso o leia.',
+  'dominio-em-pausa': 'Este servidor vem recusando o HiperVerso. Pausamos o contato com ele por um tempo.',
+  'origem-indisponivel': 'O servidor deste perfil não respondeu. Tente de novo mais tarde.',
 };
 const remoteProfileCache = new Map<string, { payload: RemoteProfileResponse; at: number }>();
 
@@ -245,6 +252,17 @@ export default function RemoteFediverseProfilePage() {
               Configurações → Fediverso
             </Link>.
           </div>
+        )}
+
+        {(data.postsSoComSeguidor || data.postsRestritos) && (
+          <p className="mx-6 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+            {data.postsRestritos
+              ? 'O servidor de origem restringe a leitura das publicações.'
+              : 'Siga para ver as publicações aqui.'}{' '}
+            <a href={data.url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">
+              Abrir em {data.domain}
+            </a>
+          </p>
         )}
 
         <ProfileContentTabs

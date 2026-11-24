@@ -14,6 +14,7 @@ import type { NextRequest } from 'next/server';
 import { mapWithLimit, parseSyncIds } from '@/lib/federation/countSyncPolicy';
 import { json, readJsonObject } from '@/lib/server/federation';
 import { syncRemotePostCounts } from '@/lib/server/remotePostInteractions';
+import { confirmarRemocoesPendentes } from '@/lib/server/cicloDeVidaRemoto';
 import { requestIp, takeRateLimit } from '@/lib/server/requestAuth';
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +35,9 @@ export async function POST(request: NextRequest) {
   const ids = parseSyncIds(body.postIds);
   const aceitos = ids.filter(() => takeRateLimit(`ap-sync-counts-posts:${ip}`, POSTS_PER_MINUTE, 60_000));
   const desfechos = await mapWithLimit(aceitos, PARALLEL_POSTS, (id) => syncRemotePostCounts(id));
+  // Fecha, aos poucos, o 404 em duas etapas: posts ocultos há mais de 6 h são conferidos de novo na origem (no máximo 3,
+  // uma vez por minuto por instância). Melhor esforço: nunca atrasa nem derruba a resposta do feed.
+  await confirmarRemocoesPendentes().catch(() => 0);
 
   const results: Record<string, number> = {};
   for (const desfecho of desfechos) results[desfecho] = (results[desfecho] ?? 0) + 1;

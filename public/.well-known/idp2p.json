@@ -1,0 +1,27 @@
+{
+  "protocol": "idp2p/v1",
+  "name": "HiperVerso IDP2P",
+  "canonicalOrigin": "https://hiperverso.app",
+  "aliases": [
+    "https://hiperverso.social",
+    "https://exercitodolula.app"
+  ],
+  "algorithms": [
+    "ECDSA-P256",
+    "WebAuthn-Passkey",
+    "TOTP-SHA1-6"
+  ],
+  "endpoints": {
+    "keysConsole": "/pt-BR/keys",
+    "passkeys": "/api/idp2p/passkeys",
+    "linkedAccounts": "/api/idp2p/linked-accounts",
+    "universe": "/api/idp2p/universe",
+    "apkRelease": "/downloads/latest.json",
+    "appStoreCatalog": "/downloads/store-catalog.json"
+  },
+  "android": {
+    "packageName": "com.soberan.app",
+    "signingCertSha256": "87d26afdfca967382d74c13dc1de13b342a427435576567593efb6fd68119c7a"
+  }
+}
+

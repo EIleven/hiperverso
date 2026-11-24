@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- App principal: a rede inteira. -->
+<resources>
+    <string name="app_name">HiperVerso</string>
+    <string name="title_activity_main">HiperVerso</string>
+    <string name="package_name">app.hiperverso</string>
+    <string name="custom_url_scheme">app.hiperverso</string>
+</resources>

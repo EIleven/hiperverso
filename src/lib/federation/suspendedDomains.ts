@@ -10,6 +10,13 @@ export const SUSPENDED_FEDIVERSE_DOMAINS = [
   'social.groselhas.com.br',
   'marte.city',
   'organica.social',
+  'masto.donte.com.br',
+  'infosec.exchange',
+  'mastodon.com.br',
+  'bantu.social',
+  'social.desescritorio.art.br',
+  'catodon.rocks',
+  'social.coletivos.org',
 ] as const;
 
 export function isSuspendedFediverseHost(host: string | null | undefined): boolean {

@@ -28,9 +28,45 @@ type BlockedDomainEntry = {
   likelyBlocked: boolean;
 };
 
+type LinhaDeSaude = {
+  domain: string;
+  recusas: number;
+  pausaAte: number | null;
+  falhas: number;
+  semDns: boolean;
+  ultimaFalhaMs: number;
+};
+
 type FediverseOverviewWithFailures = AdminOverview & {
   blockedOrFailingDomains?: BlockedDomainEntry[];
+  saudeDosDominios?: { recusando: LinhaDeSaude[]; mortos: LinhaDeSaude[] };
 };
+
+type ResumoDaPurga = {
+  domains: string[];
+  counts: Record<string, number>;
+  falhas: { passo: string; erro: string }[];
+  completo: boolean;
+};
+
+const ROTULOS_DA_PURGA: Record<string, string> = {
+  users: 'perfis',
+  posts: 'posts',
+  comments: 'comentários',
+  ap_remote_comments: 'comentários remotos',
+  ap_remote_actors: 'atores em cache',
+  ap_followers: 'seguidores',
+  ap_following: 'seguindo',
+  ap_handles: 'handles',
+  fontes: 'fontes',
+  ap_deliveries: 'entregas na fila',
+};
+
+const resumoDaContagem = (counts: Record<string, number>) =>
+  Object.entries(counts)
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => `${n} ${ROTULOS_DA_PURGA[k] ?? k}`)
+    .join(', ');
 
 export default function FediverseAdminPanel() {
   const { firebaseUser } = useCurrentUser();
@@ -94,6 +130,48 @@ export default function FediverseAdminPanel() {
     } catch (err) {
       toast({
         title: 'Falha ao atualizar Fediverso',
+        description: err instanceof Error ? err.message : 'Erro desconhecido.',
+        variant: 'destructive',
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * Suspender + purgar em dois tempos: primeiro o ENSAIO (o servidor conta o que sairia sem tocar em nada), depois a
+   * confirmação com os números na frente de quem decide. Remoção física não tem volta.
+   */
+  const handleSuspendAndPurge = async (domain: string) => {
+    const clean = domain.trim().toLowerCase();
+    if (!clean) return;
+    setBusy(`purge:${clean}`);
+    try {
+      const ensaio = (await authFetch({
+        method: 'POST',
+        body: JSON.stringify({ action: 'suspend-and-purge', domain: clean }),
+      })) as ResumoDaPurga;
+      const total = Object.values(ensaio.counts || {}).reduce((a, n) => a + (Number(n) || 0), 0);
+      const detalhe = resumoDaContagem(ensaio.counts || {}) || 'nenhum registro guardado';
+      const ok = window.confirm(
+        `Suspender ${clean} e apagar ${total} registro(s) dele?\n\n${detalhe}.\n\nA federação com esse domínio para na hora. A remoção não pode ser desfeita.`,
+      );
+      if (!ok) return;
+      const feito = (await authFetch({
+        method: 'POST',
+        body: JSON.stringify({ action: 'suspend-and-purge', domain: clean, confirmar: true }),
+      })) as ResumoDaPurga;
+      toast({
+        title: feito.completo ? `${clean} suspenso e purgado.` : `${clean} suspenso; a purga NÃO terminou.`,
+        description: feito.completo
+          ? resumoDaContagem(feito.counts || {}) || 'Nada a remover.'
+          : `Falhou: ${feito.falhas.map((f) => f.passo).join(', ')}. Rode de novo para completar.`,
+        variant: feito.completo ? undefined : 'destructive',
+      });
+      await loadOverview();
+    } catch (err) {
+      toast({
+        title: 'Falha ao suspender e purgar',
         description: err instanceof Error ? err.message : 'Erro desconhecido.',
         variant: 'destructive',
       });
@@ -439,6 +517,68 @@ export default function FediverseAdminPanel() {
               ))}
             </ul>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Trash2 className="h-4 w-4 text-destructive" />
+            Domínios que nos recusam ou sumiram
+          </CardTitle>
+          <CardDescription>
+            Recusa (403) pausa a entrega e a leitura sozinha, com prazo. Suspender é decisão sua: o botão primeiro mostra
+            quanto seria apagado.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {(['recusando', 'mortos'] as const).map((grupo) => {
+            const linhas = overview.saudeDosDominios?.[grupo] ?? [];
+            return (
+              <div key={grupo} className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {grupo === 'recusando' ? 'Recusando (403)' : 'Mortos (falha repetida)'} · {linhas.length}
+                </p>
+                {linhas.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nenhum.</p>
+                ) : (
+                  <ul className="divide-y rounded-md border">
+                    {linhas.map((l) => (
+                      <li key={`${grupo}:${l.domain}`} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span className="truncate font-mono text-sm font-medium">{l.domain}</span>
+                          {grupo === 'recusando' ? (
+                            <>
+                              <Badge variant="secondary" className="text-[10px]">{l.recusas} recusa(s) seguida(s)</Badge>
+                              {l.pausaAte !== null && (
+                                <Badge variant="destructive" className="text-[10px]">
+                                  em pausa até {new Date(l.pausaAte).toLocaleDateString('pt-BR')}
+                                </Badge>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <Badge variant="secondary" className="text-[10px]">{l.falhas} falhas seguidas</Badge>
+                              {l.semDns && <Badge variant="destructive" className="text-[10px]">DNS não resolve</Badge>}
+                            </>
+                          )}
+                        </div>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="shrink-0"
+                          disabled={busy !== null}
+                          onClick={() => void handleSuspendAndPurge(l.domain)}
+                        >
+                          {busy === `purge:${l.domain}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Suspender + purgar'}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
     </div>

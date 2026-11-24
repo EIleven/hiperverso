@@ -33,6 +33,7 @@ import {
 import { getUser, getFollowedUserIds, searchUsers as serverSearchUsers } from './userService';
 import { janelaDeAtividades } from '@/lib/feed/activityWindow';
 import { isRemoteId } from '@/lib/federation/remoteId';
+import { remotoPodeAparecerNaDescoberta } from '@/lib/activitypub/consentimentoDoAtor';
 import { isFromSuspendedFediverseDomain } from '@/lib/federation/suspendedDomains';
 import { getCurrentUserId } from './authService';
 import { postsCollection } from './postService';
@@ -474,6 +475,15 @@ const toActivity = (kind: FeedActivity['kind'], snap: QueryDocumentSnapshot<Docu
   return ts instanceof FirestoreTimestamp ? { kind, doc: snap, ts, time: ts.toMillis() } : null;
 };
 
+/**
+ * Explorar é DESCOBERTA: post de quem é de outro servidor só entra se a pessoa marcou `discoverable` no próprio perfil
+ * (gravado em `remoteDiscoverable` no espelho `ap_`). Ausente não é sim. Conteúdo local não passa por aqui.
+ */
+function remotoNaDescoberta(userId: unknown, marcadoRemoto: boolean, autor: User | undefined): boolean {
+  const remoto = marcadoRemoto || (typeof userId === 'string' && isRemoteId(userId));
+  return remotoPodeAparecerNaDescoberta({ remoto, descobrivel: autor?.remoteDiscoverable === true });
+}
+
 async function hydrateActivity(activity: FeedActivity, activeUserId: string | null, options: PaginatedPostsOptions): Promise<Post | null> {
   const isProfileFeed = options.feedContext === 'profile_posts';
   const isLocalNetwork = options.feedContext === 'local_network';
@@ -483,7 +493,9 @@ async function hydrateActivity(activity: FeedActivity, activeUserId: string | nu
     if (options.feedContext === 'profile_quotes' && data.type !== 'quote') return null;
     if (isLocalNetwork && (isRemoteId(data.userId) || data.isRemoteFediverse === true)) return null;
     if (options.excludePostId && activity.doc.id === options.excludePostId) return null; // fixado, mostrado à parte
-    return (await buildPostFromSnapshot(activity.doc, activeUserId)) ?? null;
+    const montado = (await buildPostFromSnapshot(activity.doc, activeUserId)) ?? null;
+    if (montado && options.feedContext === 'explore' && !remotoNaDescoberta(data.userId, data.isRemoteFediverse === true, montado.user)) return null;
+    return montado;
   }
 
   const repostData = activity.doc.data();
@@ -535,6 +547,13 @@ async function hydrateActivity(activity: FeedActivity, activeUserId: string | nu
     if (!entregaRestrita) return null;
   }
   if (isProfileFeed && originalPost.userId === activeUserId) return null;
+  // No Explorar, o post de quem é de fora só entra com `discoverable` -- também quando chega pelo repost de alguém daqui.
+  if (
+    options.feedContext === 'explore' &&
+    !remotoNaDescoberta(originalPost.userId, (originalPost as Post & { isRemoteFediverse?: boolean }).isRemoteFediverse === true, originalPost.user)
+  ) {
+    return null;
+  }
   return {
     ...originalPost,
     repostedBy: createEmbeddedUserDetails(reposter),

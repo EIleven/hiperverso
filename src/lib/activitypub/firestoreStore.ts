@@ -40,7 +40,7 @@ const DIA = 24 * 3600 * 1000;
 const sha = remoteHashOf;
 const HASHTAG_DO_TEXTO = /#([a-zA-Z0-9_áéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãõÃÕçÇ]+)/g;
 /** O que sobra de um post remoto que o autor apagou na origem: sem texto nem mídia, fora de todos os feeds. */
-const TUMULO_DE_POST_REMOTO = { isDeleted: true, text: '[Post removido na origem]', media: null, hasMedia: false, hashtags: null } as const;
+export const TUMULO_DE_POST_REMOTO = { isDeleted: true, text: '[Post removido na origem]', media: null, hasMedia: false, hashtags: null } as const;
 const jaExiste = (erro: unknown) => {
   const code = (erro as { code?: number | string })?.code;
   return code === 6 || code === 'already-exists';
@@ -109,6 +109,8 @@ export function createFirestoreStore(deps: FirestoreStoreDeps): FederationStore 
     iconUrl?: string | null;
     inbox?: string | null;
     sharedInbox?: string | null;
+    discoverable?: boolean;
+    indexable?: boolean;
   }): Promise<string> {
     const remoteUid = remoteUserIdOf(actor.actorId);
     await db.collection('users').doc(remoteUid).set({
@@ -122,6 +124,10 @@ export function createFirestoreStore(deps: FirestoreStoreDeps): FederationStore 
       remoteActorId: actor.actorId,
       remoteDomain: actor.domain,
       remoteInbox: actor.inbox || actor.sharedInbox || null,
+      // O que a pessoa disse no próprio ator sobre ser descoberta e indexada. Só grava quando o ator foi LIDO agora
+      // (campo presente): registro sem a informação não pode apagar a escolha guardada antes.
+      ...(typeof actor.discoverable === 'boolean' ? { remoteDiscoverable: actor.discoverable } : {}),
+      ...(typeof actor.indexable === 'boolean' ? { remoteIndexable: actor.indexable } : {}),
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
     return remoteUid;
@@ -553,10 +559,29 @@ export function createFirestoreStore(deps: FirestoreStoreDeps): FederationStore 
       if (!snap.exists) return null;
       const d = snap.data() as DocumentData;
       // Sem o campo interno de expiração: ele existe para o TTL, não é parte do contrato.
-      return { domain: texto(d.domain), consecutiveFailures: Number(d.consecutiveFailures) || 0, cooldownUntilMs: Number(d.cooldownUntilMs) || 0, lastFailureMs: Number(d.lastFailureMs) || 0 } satisfies DomainHealth;
+      //
+      // OS CAMPOS DE RECUSA TÊM DE VOLTAR. Esta leitura devolvia só os quatro campos do disjuntor de queda e descartava
+      // `consecutiveRefusals`/`refusedUntilMs`: a cada 403 o worker partia de zero, o contador nunca passava de 1 e a
+      // pausa de consentimento nunca disparou em produção (medido em 2026-11-24: 9 domínios presos em 1 recusa, 0 em
+      // pausa). O armazenamento em memória dos testes devolvia tudo, então a suíte passava provando algo que a produção
+      // não fazia. Campo ausente no documento continua ausente aqui, igual à memória.
+      const saude: DomainHealth = {
+        domain: texto(d.domain),
+        consecutiveFailures: Number(d.consecutiveFailures) || 0,
+        cooldownUntilMs: Number(d.cooldownUntilMs) || 0,
+        lastFailureMs: Number(d.lastFailureMs) || 0,
+      };
+      if (d.consecutiveRefusals !== undefined) saude.consecutiveRefusals = Number(d.consecutiveRefusals) || 0;
+      if (d.refusedUntilMs !== undefined) saude.refusedUntilMs = Number(d.refusedUntilMs) || 0;
+      if (typeof d.lastFailureClass === 'string') saude.lastFailureClass = d.lastFailureClass;
+      return saude;
     },
     async setDomainHealth(h) {
-      await db.collection('ap_domain_health').doc(h.domain).set({ ...h, expireAt: expira(now() + 7 * DIA) });
+      // O registro vive pelo menos 7 dias e SEMPRE além do fim da pausa. Antes o TTL era fixo em 7 dias e o último degrau
+      // da escada é 30: o documento sumia no meio da pausa e o domínio voltava a receber como se nada tivesse acontecido.
+      const fimDaPausa = Number(h.refusedUntilMs) || 0;
+      const expiraEm = Math.max(now() + 7 * DIA, fimDaPausa + 7 * DIA);
+      await db.collection('ap_domain_health').doc(h.domain).set({ ...h, expireAt: expira(expiraEm) });
     },
     async queueDepth() {
       const [jobs, entregas, mortas] = await Promise.all([

@@ -1,0 +1,24 @@
+{
+	"appId": "app.hiperverso.chat",
+	"appName": "HiperChat",
+	"webDir": "out",
+	"backgroundColor": "#0B0F14",
+	"server": {
+		"url": "https://hiperverso.app/pt-BR/messages?app=hiperchat",
+		"allowNavigation": [
+			"hiperverso.app"
+		],
+		"cleartext": false
+	},
+	"android": {
+		"allowMixedContent": false
+	},
+	"plugins": {
+		"FirebaseAuthentication": {
+			"skipNativeAuth": true,
+			"providers": [
+				"google.com"
+			]
+		}
+	}
+}

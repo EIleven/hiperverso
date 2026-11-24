@@ -9,6 +9,9 @@ import { adminFirestore } from '@/lib/server/firebaseAdmin';
 import { siteConfig } from '@/config/site';
 import { normalizeHandle } from '@/lib/activitypub/identity';
 import { purgeSuspendedDomainsFromFirestore } from '@/lib/server/purgeSuspended';
+import { estadoDoDominio } from '@/lib/activitypub/consentimentoDeDominio';
+import { decideInstance } from '@/lib/activitypub/gate';
+import { isSuspendedFediverseHost } from '@/lib/federation/suspendedDomains';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,7 +85,60 @@ export async function GET(request: Request) {
     return b.deadCount - a.deadCount;
   });
 
-  return json(200, { ...overview, blockedOrFailingDomains });
+  return json(200, { ...overview, blockedOrFailingDomains, saudeDosDominios: await saudeDosDominios() });
+}
+
+type LinhaDeSaude = {
+  domain: string;
+  recusas: number;
+  pausaAte: number | null;
+  falhas: number;
+  semDns: boolean;
+  ultimaFalhaMs: number;
+};
+
+/**
+ * Domínios que nos RECUSAM (403, com ou sem pausa ativa) e domínios MORTOS (falha de infraestrutura repetida, com o DNS
+ * separado), lidos de `ap_domain_health`. Quem já está suspenso sai da lista: a decisão já foi tomada.
+ *
+ * O painel só MOSTRA. Suspender continua sendo decisão de uma pessoa: heurística não bane ninguém sozinha.
+ */
+async function saudeDosDominios(): Promise<{ recusando: LinhaDeSaude[]; mortos: LinhaDeSaude[] }> {
+  const f = federation();
+  const [snap, politica] = await Promise.all([
+    adminFirestore().collection('ap_domain_health').limit(500).get().catch(() => null),
+    f.store.getInstancePolicy().catch(() => null),
+  ]);
+  const recusando: LinhaDeSaude[] = [];
+  const mortos: LinhaDeSaude[] = [];
+  if (!snap) return { recusando, mortos };
+  const agora = Date.now();
+  for (const docSnap of snap.docs) {
+    const dominio = docSnap.id.toLowerCase();
+    if (isSuspendedFediverseHost(dominio)) continue;
+    if (politica && decideInstance(dominio, politica, f.ownHost).decision === 'reject') continue;
+    const d = docSnap.data();
+    const saude = {
+      consecutiveFailures: Number(d.consecutiveFailures) || 0,
+      consecutiveRefusals: Number(d.consecutiveRefusals) || 0,
+      refusedUntilMs: Number(d.refusedUntilMs) || 0,
+      lastFailureClass: typeof d.lastFailureClass === 'string' ? d.lastFailureClass : undefined,
+    };
+    const estado = estadoDoDominio(saude, agora);
+    const linha: LinhaDeSaude = {
+      domain: dominio,
+      recusas: saude.consecutiveRefusals,
+      pausaAte: estado.pausaAte,
+      falhas: saude.consecutiveFailures,
+      semDns: estado.semDns,
+      ultimaFalhaMs: Number(d.lastFailureMs) || 0,
+    };
+    if (estado.recusando || estado.emPausa) recusando.push(linha);
+    if (estado.morto) mortos.push(linha);
+  }
+  recusando.sort((a, b) => Number(b.pausaAte !== null) - Number(a.pausaAte !== null) || b.recusas - a.recusas);
+  mortos.sort((a, b) => Number(b.semDns) - Number(a.semDns) || b.falhas - a.falhas);
+  return { recusando, mortos };
 }
 
 export async function POST(request: Request) {
@@ -150,6 +206,21 @@ export async function POST(request: Request) {
       note: `https://${antigo.replace(/^www\./, '')}`,
     });
     return json(200, { ok: true, handle: reserva.handle, de: `https://${antigo.replace(/^www\./, '')}`, para: f.origin });
+  }
+  // Suspender + purgar UM domínio. Em dois tempos, de propósito: sem `confirmar: true` é ENSAIO (conta o que sairia e
+  // não toca em nada), e a tela mostra os números antes de alguém apertar de novo. Remoção física não se desfaz.
+  if (corpo.action === 'suspend-and-purge') {
+    const dominio = typeof corpo.domain === 'string' ? corpo.domain.trim().toLowerCase() : '';
+    if (corpo.confirmar !== true) {
+      const ensaio = await purgeSuspendedDomainsFromFirestore({ dominios: [dominio], ensaio: true });
+      if (ensaio.domains.length === 0) return json(422, { error: 'dominio-invalido' });
+      return json(200, { ok: true, ...ensaio });
+    }
+    // A regra vem PRIMEIRO: ela valida o domínio (inclusive recusa o nosso) e corta a federação na hora. Só então apaga.
+    const regra = await adminSetInstanceRule(deps, quem.uid, dominio, 'suspend');
+    if (!regra.ok) return json(STATUS_DA_FALHA[regra.reason], { error: regra.reason });
+    const resumo = await purgeSuspendedDomainsFromFirestore({ dominios: [dominio] });
+    return json(200, { ok: true, ...resumo });
   }
   if (corpo.action === 'purge-suspended') {
     const summary = await purgeSuspendedDomainsFromFirestore();

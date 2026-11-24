@@ -463,7 +463,13 @@ const varrerUploads = (dir) => {
     const stagingVideoAutorizado = relativo === join('lib', 'services', 'mediaUploadService.ts') &&
       texto.includes("fetch('/api/media/video/init'") &&
       texto.includes('uploadBytesResumable(');
-    if (temUpload && !stagingVideoAutorizado) {
+    // Anexo CIFRADO grande (ate 200 MB) tambem precisa do protocolo retomavel. A liberacao e CONDICIONAL: so vale
+    // enquanto o arquivo fechar o envio pelo servidor, que e quem apaga o token permanente gravado no objeto.
+    // Tirar o fechamento faz esta guarda voltar a acusar -- que e o comportamento desejado.
+    const cifradoAutorizado = relativo === join('lib', 'services', 'encryptedMediaService.ts') &&
+      texto.includes('fecharEnvio(') &&
+      texto.includes("JSON.stringify({ finalizar: mediaId })");
+    if (temUpload && !stagingVideoAutorizado && !cifradoAutorizado) {
       uploadsFora.push(relativo);
     }
   }
@@ -689,6 +695,46 @@ confere(
   migracao2.includes('referências a objeto PRIVADO ainda apontam para o Storage'),
   'referência pública legada é aceita por decisão e não pode travar a conferência',
 );
+
+// ───────────── 10. A rota PÚBLICA /m/{id} não pode virar página ─────────────
+//
+// O defeito trancado aqui: a regra do banco deixava um membro logado registrar um arquivo DELE com
+// `contentType: 'text/html'`, e a rota pública servia aquilo com `Content-Disposition: inline` no domínio
+// principal — script rodando no site e dentro da WebView do app, alcançando o que o navegador guarda.
+// A defesa (`canRenderInline`) já existia e já barrava HTML, SVG e XML: a rota privada usava, a pública não.
+{
+  const rotaPublica = readFileSync(join(RAIZ, 'src/app/m/[id]/route.ts'), 'utf8');
+  confere(
+    'a rota pública decide o disposition pelo TIPO, em vez de servir tudo inline',
+    rotaPublica.includes('canRenderInline(contentType)') && !/'Content-Disposition': 'inline'/.test(rotaPublica),
+    'voltou a servir qualquer tipo como inline',
+  );
+  confere(
+    'e manda uma segunda tranca, para o caso de ser aberta como documento',
+    /Content-Security-Policy/.test(rotaPublica) && /sandbox/.test(rotaPublica),
+    'sem CSP de sandbox na mídia pública',
+  );
+  confere(
+    'HTML, SVG e XML nunca são inline',
+    ['text/html', 'image/svg+xml', 'application/xhtml+xml', 'text/xml', 'application/xml'].every(
+      (t) => canRenderInline(t) === false,
+    ),
+    'algum tipo que vira documento passou por inline',
+  );
+  confere(
+    'e o que é desenhável continua inline (imagem, vídeo, áudio, PDF)',
+    ['image/png', 'image/jpeg', 'video/mp4', 'audio/mpeg', 'application/pdf'].every((t) => canRenderInline(t) === true),
+    'quebrou a exibição do que é legítimo',
+  );
+
+  const regras = readFileSync(join(RAIZ, 'firestore.rules'), 'utf8');
+  const blocoMedia = regras.slice(regras.indexOf('match /media/{mediaId}'), regras.indexOf('match /userFiles/'));
+  confere(
+    'NENHUM cliente registra mídia: quem cria é o servidor, pelo Admin SDK',
+    /allow create: if false;/.test(blocoMedia),
+    'a criação de registro de mídia voltou a ser aberta ao cliente',
+  );
+}
 
 if (falhas) {
   console.log(`\n${falhas} falha(s) na mídia privada.`);

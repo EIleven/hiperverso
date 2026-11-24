@@ -14,7 +14,7 @@ type Linha = {
   nome: string;
   tipo: string;
   finalidade: string;
-  categoria: 'Necessário' | 'Medição' | 'Publicidade';
+  categoria: 'Necessário' | 'Medição';
   duracao: string;
 };
 

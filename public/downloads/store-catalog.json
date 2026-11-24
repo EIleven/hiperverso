@@ -1,0 +1,68 @@
+{
+  "storeName": "Loja HiperVerso BR",
+  "tagline": "Apps e Games brasileiros distribuídos direto na fonte — sem taxa de 30% de lojas estrangeiras e com verificação criptográfica SHA-256.",
+  "items": [
+    {
+      "id": "hiperverso-android",
+      "kind": "app",
+      "title": "HiperVerso Oficial",
+      "developer": "HiperVerso BR",
+      "origin": "Brasil",
+      "summary": "Rede social federada, Zero Bots & Anti-IA, Identidade P2P (IDP2P) com Passkeys, Autenticador TOTP e Teatro de Mídia.",
+      "platform": "Android APK (app.hiperverso)",
+      "version": "1.5.0",
+      "license": "Código Aberto / AGPL-3.0",
+      "sha256": "a9c5aaaa5f56fdbd23327f202a584b8c8895997b879daeeb4ff069e50363288d",
+      "actionLabel": "Baixar HiperVerso APK",
+      "actionUrl": "/downloads/HiperVerso-1.5.0.apk",
+      "isDownload": true,
+      "featured": true
+    },
+    {
+      "id": "hiperchat-android",
+      "kind": "app",
+      "title": "HiperChat (Mensagens Beta)",
+      "developer": "HiperVerso BR",
+      "origin": "Brasil",
+      "summary": "Mensageiro independente e leve do HiperVerso: abre direto nas suas conversas sincronizadas, com login local ou via @ do Fediverso.",
+      "platform": "Android APK (app.hiperverso.chat)",
+      "version": "1.5.0",
+      "license": "Código Aberto / AGPL-3.0",
+      "sha256": "1418de06fdb047f6ab0c0293ddf6a1ed365d5f44cd7a34475e23ec0874fbe5f2",
+      "actionLabel": "Baixar HiperChat APK",
+      "actionUrl": "/downloads/HiperChat-1.5.0.apk",
+      "isDownload": true,
+      "featured": true
+    },
+    {
+      "id": "hiperverso-idp2p-pwa",
+      "kind": "app",
+      "title": "HiperVerso PWA (iOS & Desktop)",
+      "developer": "HiperVerso BR",
+      "origin": "Brasil",
+      "summary": "Instalação direta sem App Store no iPhone (Safari), Windows, macOS e Linux com suporte a Face ID, Passkeys e Web Push.",
+      "platform": "Web / PWA",
+      "version": "Ao vivo",
+      "license": "Padrões Web Abertos",
+      "actionLabel": "Abrir App Web",
+      "actionUrl": "/pt-BR/keys",
+      "isDownload": false,
+      "featured": false
+    },
+    {
+      "id": "arcade-br-hiperverso",
+      "kind": "game",
+      "title": "Espaço Games BR (Em Curadoria)",
+      "developer": "Estúdios Independentes BR",
+      "origin": "Brasil",
+      "summary": "Vitrine aberta para jogos Android (.apk assinado) e WebGames HTML5/WebAssembly feitos no Brasil, com login nativo via IDP2P (QR/Passkey) e zero comissão abusiva.",
+      "platform": "Android APK & WebGame",
+      "version": "Chamada Aberta",
+      "license": "Verificação SHA-256",
+      "actionLabel": "Submeter Game / App BR",
+      "actionUrl": "/pt-BR/messages",
+      "isDownload": false,
+      "featured": false
+    }
+  ]
+}

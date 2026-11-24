@@ -251,6 +251,11 @@ async function bateria(F) {
   await S.putRemoteActor(remoto);
   confere(rot('ator remoto: ida e volta (sem vazar o campo interno de expiração)'), igual(await S.getRemoteActor(remoto.actorId), remoto), JSON.stringify(await S.getRemoteActor(remoto.actorId)));
   confere(rot('ator remoto: inexistente → null'), (await S.getRemoteActor('https://nada.org/u')) === null, 'não nulo');
+  // "Desde quando sumiu" tem de voltar da leitura: sem ele, o segundo 404 nunca seria reconhecido como confirmação e os
+  // posts de uma conta apagada na origem ficariam no ar para sempre.
+  const sumido = { ...remoto, actorId: 'https://m.org/users/sumido', state: 'gone', goneSinceMs: T0 - 1000, discoverable: true, indexable: false };
+  await S.putRemoteActor(sumido);
+  confere(rot('ator remoto: goneSinceMs, discoverable e indexable sobrevivem à ida e volta'), igual(await S.getRemoteActor(sumido.actorId), sumido), JSON.stringify(await S.getRemoteActor(sumido.actorId)));
   const vistos = await Promise.all(Array.from({ length: 6 }, () => S.markSeen('https://m.org/act/1', 1000)));
   confere(rot('markSeen: 6 chamadas SIMULTÂNEAS com o mesmo id → exatamente UMA é a primeira'), vistos.filter(Boolean).length === 1, JSON.stringify(vistos));
   confere(rot('markSeen: id diferente é outra primeira vez'), (await S.markSeen('https://m.org/act/2', 1000)) === true, 'tratou como repetido');
@@ -340,6 +345,14 @@ async function bateria(F) {
   confere(rot('domínio: sem registro → null'), (await S.getDomainHealth('nunca.org')) === null, 'não nulo');
   await S.setDomainHealth({ domain: 'm.org', consecutiveFailures: 3, cooldownUntilMs: T0 + 5, lastFailureMs: T0 });
   confere(rot('domínio: ida e volta'), igual(await S.getDomainHealth('m.org'), { domain: 'm.org', consecutiveFailures: 3, cooldownUntilMs: T0 + 5, lastFailureMs: T0 }), JSON.stringify(await S.getDomainHealth('m.org')));
+  // A RECUSA tem de voltar da leitura. O adaptador do Firestore descartava estes campos: o worker partia de zero a cada
+  // 403 e a pausa de consentimento nunca disparou em produção. Este caso é o que teria pego o defeito.
+  const recusa = { domain: 'r.org', consecutiveFailures: 0, cooldownUntilMs: 0, lastFailureMs: T0, consecutiveRefusals: 3, refusedUntilMs: T0 + 86_400_000 };
+  await S.setDomainHealth(recusa);
+  confere(rot('domínio: recusas (403) e fim da pausa sobrevivem à ida e volta'), igual(await S.getDomainHealth('r.org'), recusa), JSON.stringify(await S.getDomainHealth('r.org')));
+  const morto = { domain: 'x.org', consecutiveFailures: 9, cooldownUntilMs: T0 + 9, lastFailureMs: T0, lastFailureClass: 'dns' };
+  await S.setDomainHealth(morto);
+  confere(rot('domínio: classe da última falha sobrevive à ida e volta'), igual(await S.getDomainHealth('x.org'), morto), JSON.stringify(await S.getDomainHealth('x.org')));
 
   // observabilidade
   let erro = null;

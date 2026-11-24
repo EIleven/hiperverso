@@ -4,7 +4,12 @@ import { NextResponse } from 'next/server';
 import { loginErrorUrl } from '@/lib/auth/loginErrors';
 import { safeFetchText } from '@/lib/security/safe-fetch';
 import { federation } from '@/lib/server/federation';
-import { createLoginTicket, provisionOrLoginFederatedUser } from '@/lib/server/federatedAuth';
+import {
+  createLoginTicket,
+  FederatedSignupClosedError,
+  isFediverseDomainBlockedForLogin,
+  provisionOrLoginFederatedUser,
+} from '@/lib/server/federatedAuth';
 import { normalizeFederatedConsent, syncMastodonData, type FederatedSyncConsent } from '@/lib/server/federatedSync';
 import { adminFirestore } from '@/lib/server/firebaseAdmin';
 import { stripHtml } from '@/lib/server/remoteProfile';
@@ -40,6 +45,10 @@ export async function GET(request: Request) {
     }
     locale = stateData.locale === 'en' ? 'en' : 'pt-BR';
     const domain = stateData.domain;
+
+    if (await isFediverseDomainBlockedForLogin(domain)) {
+      return NextResponse.redirect(`${f.origin}/${locale}/login?auth_error=fediverse_domain_blocked`);
+    }
 
     const appSnap = await db.collection('fediverse_oauth_apps').doc(domain).get();
     const appData = appSnap.data() as { clientId?: string; clientSecret?: string; redirectUri?: string } | undefined;
@@ -136,6 +145,9 @@ export async function GET(request: Request) {
     const ticket = await createLoginTicket(provisioned);
     return NextResponse.redirect(`${f.origin}/${locale}/login?ticket=${encodeURIComponent(ticket)}`);
   } catch (err) {
+    if (err instanceof FederatedSignupClosedError) {
+      return NextResponse.redirect(`${f.origin}/${locale}/login?auth_error=signup_closed`);
+    }
     // O texto do erro fica só no log; a URL leva um CÓDIGO conhecido (loginErrors.ts), nunca a mensagem interna.
     console.error('Fediverse OAuth callback failed:', err instanceof Error ? err.message : String(err));
     return NextResponse.redirect(loginErrorUrl(f.origin, locale, 'fediverse_error', err));

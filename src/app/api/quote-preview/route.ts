@@ -7,6 +7,7 @@ import { JSDOM, VirtualConsole } from 'jsdom';
 import type { Post } from '@/lib/types';
 import { siteConfig } from '@/config/site';
 import { assertSafeUrl, safeFetchText, UnsafeUrlError } from '@/lib/security/safe-fetch';
+import { registrarFonte, sinaisDoDocumento } from '@/lib/fontes/registrarFonte';
 import { requestIp, takeRateLimit } from '@/lib/server/requestAuth';
 import { evaluateRequestSecurity } from '@/lib/security/antiBotGuard';
 
@@ -294,6 +295,29 @@ export async function GET(request: NextRequest) {
         const description = document.querySelector('meta[property="og:description"]')?.getAttribute('content') ||
                           document.querySelector('meta[name="description"]')?.getAttribute('content') ||
                           (bestCandidate ? bestCandidate.textContent?.substring(0, 200) : '') || '';
+
+        // ── Índice de Fontes ──
+        // A página já foi buscada porque alguém colou o link: o custo está pago. Em vez de jogar fora o que foi
+        // lido, guarda-se o resumo — e o índice cresce sem UMA requisição a mais e sem rastrear ninguém.
+        //
+        // `void` de propósito: quem está esperando é uma pessoa olhando a prévia. Gravar no índice não pode
+        // atrasar essa tela, e uma falha aqui não pode estragá-la. A política de SE pode entrar (noindex, host
+        // nosso, arquivo de mídia) mora em lib/fontes/politicaDeIndexacao.ts.
+        void registrarFonte({
+          urlOriginal: response.finalUrl || urlToPreview,
+          titulo: title,
+          descricao: description,
+          imagem: mainImageUrl,
+          idioma:
+            document.querySelector('html')?.getAttribute('lang') ||
+            document.querySelector('meta[property="og:locale"]')?.getAttribute('content') ||
+            null,
+          publicadoEm:
+            document.querySelector('meta[property="article:published_time"]')?.getAttribute('content') ||
+            document.querySelector('time[datetime]')?.getAttribute('datetime') ||
+            null,
+          sinais: sinaisDoDocumento(document, response.headers),
+        }).catch(() => {});
 
         // Construct a Post-like object for the preview card
         const previewData: Partial<Post> = {

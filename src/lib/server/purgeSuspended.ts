@@ -2,40 +2,20 @@
 // Remoção física paginada no Firestore de perfis, posts, comentários, vínculos e índices de domínios suspensos.
 import type { DocumentData, Query, QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { adminFirestore } from '@/lib/server/firebaseAdmin';
-import {
-  isFromSuspendedFediverseDomain,
-  isSuspendedFediverseHost,
-  SUSPENDED_FEDIVERSE_DOMAINS,
-} from '@/lib/federation/suspendedDomains';
+import { SUSPENDED_FEDIVERSE_DOMAINS } from '@/lib/federation/suspendedDomains';
+import { hostCasaComDominios, registroEhDosDominios } from '@/lib/federation/registroDeDominio';
 
 const PAGE_SIZE = 300;
 
-function isSuspendedRecord(data: Record<string, unknown> | undefined): boolean {
-  if (!data) return false;
-  return (
-    isFromSuspendedFediverseDomain({
-      remoteDomain: typeof data.remoteDomain === 'string' ? data.remoteDomain : null,
-      username: typeof data.username === 'string' ? data.username : null,
-      remoteUrl: typeof data.remoteUrl === 'string' ? data.remoteUrl : null,
-      remoteActorId: typeof data.remoteActorId === 'string' ? data.remoteActorId : null,
-      apActorUri: typeof data.apActorUri === 'string' ? data.apActorUri : null,
-      website: typeof data.website === 'string' ? data.website : null,
-      authorDetails:
-        data.authorDetails && typeof data.authorDetails === 'object'
-          ? { username: (data.authorDetails as { username?: string }).username ?? null }
-          : null,
-    }) ||
-    isSuspendedFediverseHost(typeof data.domain === 'string' ? data.domain : null) ||
-    isSuspendedFediverseHost(typeof data.host === 'string' ? data.host : null) ||
-    (typeof data.handle === 'string' &&
-      data.handle.includes('@') &&
-      isSuspendedFediverseHost(data.handle.split('@').pop())) ||
-    (typeof data.apObjectId === 'string' && isFromSuspendedFediverseDomain({ remoteUrl: data.apObjectId })) ||
-    (typeof data.actorId === 'string' && isFromSuspendedFediverseDomain({ remoteUrl: data.actorId })) ||
-    (typeof data.url === 'string' && isFromSuspendedFediverseDomain({ remoteUrl: data.url })) ||
-    (typeof data.canonicalUrl === 'string' && isFromSuspendedFediverseDomain({ remoteUrl: data.canonicalUrl }))
-  );
-}
+export type OpcoesDaPurga = {
+  /**
+   * Domínios a remover. Sem isto, vale a lista fixa de suspensos do código. Com isto, a purga mira só esses -- é o que o
+   * painel usa para atender UM servidor sem apagar o que ninguém pediu.
+   */
+  dominios?: string[];
+  /** Ensaio: conta tudo o que seria removido e NÃO apaga nada, nem grava política ou auditoria. */
+  ensaio?: boolean;
+};
 
 async function scanPaginated(
   baseQuery: Query<DocumentData>,
@@ -78,8 +58,21 @@ async function passo(
   }
 }
 
-export async function purgeSuspendedDomainsFromFirestore() {
+export async function purgeSuspendedDomainsFromFirestore(opcoes: OpcoesDaPurga = {}) {
   const db = adminFirestore();
+  const ensaio = opcoes.ensaio === true;
+  const alvos = (opcoes.dominios ?? [])
+    .map((d) => d.trim().toLowerCase().replace(/\.$/, ''))
+    .filter((d) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d));
+  // PEDIDO EXPLÍCITO NUNCA CAI NO PADRÃO. Se `dominios` veio e nenhum é válido, a purga não roda: cair na lista fixa
+  // inteira transformaria um domínio digitado errado no painel em remoção de todos os suspensos de uma vez.
+  const dominios = opcoes.dominios !== undefined ? Array.from(new Set(alvos)) : [...SUSPENDED_FEDIVERSE_DOMAINS];
+  const ehDoAlvo = (dados: Record<string, unknown> | undefined, idDoDoc?: string) =>
+    registroEhDosDominios(dados, dominios, idDoDoc);
+  /** Apaga de verdade só fora do ensaio. A contagem é a mesma nos dois casos: o ensaio mostra exatamente o que sairia. */
+  const remover = async (apagar: () => Promise<unknown>) => {
+    if (!ensaio) await apagar();
+  };
   const userIds = new Set<string>();
   const falhas: Array<{ passo: string; erro: string }> = [];
   const counts = {
@@ -94,15 +87,25 @@ export async function purgeSuspendedDomainsFromFirestore() {
     fontes: 0,
     ap_deliveries: 0,
   };
+  if (dominios.length === 0) {
+    return {
+      domains: [] as string[],
+      counts,
+      executedAtMs: Date.now(),
+      falhas: [{ passo: 'entrada', erro: 'nenhum dominio valido foi informado; nada foi feito' }],
+      completo: false,
+      ensaio,
+    };
+  }
 
   // 1. Usuários remotos
   await passo('users', falhas, () => scanPaginated(
     db.collection('users').where('isRemoteFediverse', '==', true),
     async (docSnap) => {
-      if (isSuspendedRecord(docSnap.data())) {
+      if (ehDoAlvo(docSnap.data())) {
         userIds.add(docSnap.id);
         counts.users++;
-        await db.recursiveDelete(docSnap.ref);
+        await remover(() => db.recursiveDelete(docSnap.ref));
       }
     },
   ));
@@ -112,9 +115,9 @@ export async function purgeSuspendedDomainsFromFirestore() {
     db.collection('posts').where('isRemoteFediverse', '==', true),
     async (docSnap) => {
       const data = docSnap.data();
-      if (userIds.has(String(data.userId || '')) || isSuspendedRecord(data)) {
+      if (userIds.has(String(data.userId || '')) || ehDoAlvo(data)) {
         counts.posts++;
-        await db.recursiveDelete(docSnap.ref);
+        await remover(() => db.recursiveDelete(docSnap.ref));
       }
     },
   ));
@@ -126,34 +129,34 @@ export async function purgeSuspendedDomainsFromFirestore() {
     db.collectionGroup('comments').where('isRemoteFediverse', '==', true),
     async (docSnap) => {
       const data = docSnap.data();
-      if (userIds.has(String(data.userId || '')) || isSuspendedRecord(data)) {
+      if (userIds.has(String(data.userId || '')) || ehDoAlvo(data)) {
         counts.comments++;
-        await db.recursiveDelete(docSnap.ref);
+        await remover(() => db.recursiveDelete(docSnap.ref));
       }
     },
   ));
 
   // 4. ap_remote_comments
   await passo('ap_remote_comments', falhas, () => scanPaginated(db.collection('ap_remote_comments'), async (docSnap) => {
-    if (isSuspendedRecord(docSnap.data())) {
+    if (ehDoAlvo(docSnap.data())) {
       counts.ap_remote_comments++;
-      await docSnap.ref.delete();
+      await remover(() => docSnap.ref.delete());
     }
   }));
 
   // 5. ap_remote_actors
   await passo('ap_remote_actors', falhas, () => scanPaginated(db.collection('ap_remote_actors'), async (docSnap) => {
-    if (isSuspendedRecord(docSnap.data()) || isSuspendedFediverseHost(docSnap.id)) {
+    if (ehDoAlvo(docSnap.data(), docSnap.id) || hostCasaComDominios(docSnap.id, dominios)) {
       counts.ap_remote_actors++;
-      await docSnap.ref.delete();
+      await remover(() => docSnap.ref.delete());
     }
   }));
 
   // 6. ap_followers (coleção plana: doc('${uid}__${sha(actorId)}'))
   await passo('ap_followers', falhas, () => scanPaginated(db.collection('ap_followers'), async (docSnap) => {
-    if (isSuspendedRecord(docSnap.data())) {
+    if (ehDoAlvo(docSnap.data())) {
       counts.ap_followers++;
-      await docSnap.ref.delete();
+      await remover(() => docSnap.ref.delete());
     }
   }));
 
@@ -163,9 +166,9 @@ export async function purgeSuspendedDomainsFromFirestore() {
     for (const parent of followingParents.docs) {
       const actorsSnap = await parent.ref.collection('actors').get();
       for (const actorDoc of actorsSnap.docs) {
-        if (isSuspendedRecord(actorDoc.data())) {
+        if (ehDoAlvo(actorDoc.data())) {
           counts.ap_following++;
-          await actorDoc.ref.delete();
+          await remover(() => actorDoc.ref.delete());
         }
       }
     }
@@ -173,33 +176,34 @@ export async function purgeSuspendedDomainsFromFirestore() {
 
   // 8. ap_handles
   await passo('ap_handles', falhas, () => scanPaginated(db.collection('ap_handles'), async (docSnap) => {
-    const handleHasDomain =
-      docSnap.id.includes('@') && isSuspendedFediverseHost(docSnap.id.split('@').pop());
-    if (handleHasDomain || isSuspendedRecord(docSnap.data())) {
+    if (ehDoAlvo(docSnap.data(), docSnap.id)) {
       counts.ap_handles++;
-      await docSnap.ref.delete();
+      await remover(() => docSnap.ref.delete());
     }
   }));
 
   // 9. fontes (índice público da aba Fontes)
   await passo('fontes', falhas, () => scanPaginated(db.collection('fontes'), async (docSnap) => {
-    if (isSuspendedRecord(docSnap.data())) {
+    if (ehDoAlvo(docSnap.data())) {
       counts.fontes++;
-      await docSnap.ref.delete();
+      await remover(() => docSnap.ref.delete());
     }
   }));
 
   // 9b. ap_deliveries: a fila guarda o CORPO da atividade que enviamos aquele servidor. Remocao pedida inclui isso.
   await passo('ap_deliveries', falhas, () => scanPaginated(db.collection('ap_deliveries'), async (docSnap) => {
-    if (isSuspendedRecord(docSnap.data())) {
+    if (ehDoAlvo(docSnap.data())) {
       counts.ap_deliveries++;
-      await docSnap.ref.delete();
+      await remover(() => docSnap.ref.delete());
     }
   }));
 
   // 10. Política de instância + registro de auditoria
   const executedAtMs = Date.now();
-  for (const domain of SUSPENDED_FEDIVERSE_DOMAINS) {
+  if (ensaio) {
+    return { domains: dominios, counts, executedAtMs, falhas, completo: falhas.length === 0, ensaio: true };
+  }
+  for (const domain of dominios) {
     await db.collection('ap_instance_policy').doc(domain).set(
       {
         action: 'suspend',
@@ -212,7 +216,7 @@ export async function purgeSuspendedDomainsFromFirestore() {
 
   await db.collection('ap_audit').add({
     action: 'purge_suspended_domains',
-    domains: [...SUSPENDED_FEDIVERSE_DOMAINS],
+    domains: dominios,
     counts,
     executedAtMs,
     falhas,
@@ -221,7 +225,8 @@ export async function purgeSuspendedDomainsFromFirestore() {
   });
 
   return {
-    domains: [...SUSPENDED_FEDIVERSE_DOMAINS],
+    domains: dominios,
+    ensaio: false,
     counts,
     executedAtMs,
     // Um passo que falhou aparece aqui com nome e motivo. Relatorio de remocao que esconde o que nao foi feito

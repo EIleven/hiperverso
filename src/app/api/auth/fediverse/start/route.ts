@@ -3,9 +3,9 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { NextResponse } from 'next/server';
-import { decideInstance } from '@/lib/activitypub/gate';
 import { safeFetchText } from '@/lib/security/safe-fetch';
 import { federation } from '@/lib/server/federation';
+import { isFediverseDomainBlockedForLogin } from '@/lib/server/federatedAuth';
 import { normalizeFederatedConsent } from '@/lib/server/federatedSync';
 import { adminFirestore } from '@/lib/server/firebaseAdmin';
 import { requestIp, takeRateLimit } from '@/lib/server/requestAuth';
@@ -48,8 +48,7 @@ export async function POST(request: Request) {
   }
 
   const f = federation();
-  const politica = await f.store.getInstancePolicy();
-  if (decideInstance(domain, politica, f.ownHost).decision === 'reject') {
+  if (await isFediverseDomainBlockedForLogin(domain)) {
     return NextResponse.json({ message: 'Este servidor do Fediverso não é permitido.' }, { status: 403 });
   }
 

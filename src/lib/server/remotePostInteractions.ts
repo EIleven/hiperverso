@@ -1,22 +1,29 @@
 // src/lib/server/remotePostInteractions.ts
 // Importa comentários, curtidas e repostagens de posts remotos do Fediverso sob demanda.
-import { remoteFollowDocIdOf, remotePostIdOf } from '@/lib/activitypub/remoteIdentity';
+import { isOwnHostUrl, remotePostIdOf, sameHost } from '@/lib/activitypub/remoteIdentity';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import type { User } from '@/lib/types';
 import { decideInstance } from '@/lib/activitypub/gate';
 import { pausaDeConsentimento } from '@/lib/activitypub/consentimentoDeDominio';
 import { isFromSuspendedFediverseDomain, isSuspendedFediverseHost } from '@/lib/federation/suspendedDomains';
-import { safeFetchText } from '@/lib/security/safe-fetch';
+import { ACTIVITY_ACCEPT, resolveRemoteActor } from '@/lib/activitypub/remote';
+import { classificarLeitura, contagensDoNote, idDe, itensDe, primeiraPagina, type LeituraAp } from '@/lib/activitypub/colecoes';
+import type { RemoteActorRecord } from '@/lib/activitypub/store';
 import { federation } from '@/lib/server/federation';
+import { podeLerDoDominio } from '@/lib/server/leituraRemota';
+import { aplicarCicloAoDocumento, aplicarCicloAoPost } from '@/lib/server/cicloDeVidaRemoto';
 import { adminFirestore } from '@/lib/server/firebaseAdmin';
 import { createDomainGate, createSyncMemo } from '@/lib/federation/countSyncPolicy';
 import { createCountSyncer, type CountSyncOutcome, type FetchedStatus } from '@/lib/federation/countSyncer';
-import { applyRemoteCounts, raiseRemoteCommentCount } from '@/lib/server/remoteCounts';
+import { applyRemoteCounts } from '@/lib/server/remoteCounts';
 import { remoteUserIdOf } from '@/lib/server/remoteMaterialize';
 import { stripHtml } from '@/lib/server/remoteProfile';
 
 interface MastodonAccount {
   id?: string;
+  /** `toot:discoverable` / `toot:indexable` do ator. Só `true` é sim. */
+  discoverable?: boolean;
+  indexable?: boolean;
   username?: string;
   acct?: string;
   display_name?: string;
@@ -43,57 +50,87 @@ interface MastodonStatus {
   account?: MastodonAccount;
 }
 
-async function resolveStatusLocation(
-  postData: { remoteUrl?: string; remoteObjectId?: string; remoteActorId?: string },
-  userAgent: string,
-): Promise<{ domain: string; statusId: string } | null> {
-  const rawUrl = postData.remoteUrl || postData.remoteObjectId || '';
-  if (!rawUrl.startsWith('https://')) return null;
+const AS_PUBLIC = 'https://www.w3.org/ns/activitystreams#Public';
 
-  let domain = '';
+function hostDe(url: string): string | null {
   try {
-    domain = new URL(rawUrl).hostname.toLowerCase();
+    return new URL(url).hostname.toLowerCase();
   } catch {
     return null;
   }
+}
 
-  const f = federation();
-  const plataforma = await f.store.getPlatform();
-  if (!plataforma.enabled || plataforma.killSwitch) return null;
-  const politica = await f.store.getInstancePolicy();
-  if (decideInstance(domain, politica, f.ownHost).decision === 'reject') return null;
+/**
+ * Podemos LER deste domínio agora? Plataforma ligada, domínio não suspenso (nem na lista fixa, nem na política do banco)
+ * e sem pausa de consentimento ativa -- quem recusa receber de nós também não é lido por nós.
+ */
+async function podeLer(dominio: string): Promise<boolean> {
+  return (await podeLerDoDominio(dominio)).pode;
+}
 
-  const saude = await f.store.getDomainHealth(domain).catch(() => null);
-  if (pausaDeConsentimento(saude, Date.now()).pausado) return null;
+/**
+ * Onde o objeto ActivityPub do post mora, se podemos ler de lá. `statusId` carrega o ID AP (URI) do objeto: o
+ * orquestrador de contadores só repassa o valor, não o interpreta.
+ *
+ * Antes isto extraía um id NUMÉRICO da URL para chamar a REST do Mastodon e, se não achasse, perguntava ao servidor por
+ * `/api/v2/search?resolve=true` sem autenticação. Agora o objeto é lido pelo próprio ID, como o protocolo prevê.
+ */
+async function localizarObjeto(postData: {
+  remoteUrl?: string;
+  remoteObjectId?: string;
+  remoteActorId?: string;
+}): Promise<{ domain: string; statusId: string } | null> {
+  const objectUri = [postData.remoteObjectId, postData.remoteUrl].find(
+    (u): u is string => typeof u === 'string' && u.startsWith('https://'),
+  );
+  if (!objectUri) return null;
+  const domain = hostDe(objectUri);
+  if (!domain) return null;
+  if (isOwnHostUrl(objectUri, federation().ownHost)) return null;
+  if (!(await podeLer(domain))) return null;
+  return { domain, statusId: objectUri };
+}
 
-  const directMatch = rawUrl.match(/\/(\d+)(?:\/activity)?(?:\/)?(?:\?.*)?$/);
-  if (directMatch?.[1]) {
-    return { domain, statusId: directMatch[1] };
+/**
+ * GET ActivityPub de um objeto, com a classificação da resposta. O `fetcher` da federação tenta sem assinatura e, se o
+ * servidor exigir (401/403), repete ASSINADO -- e para aí. Recusa assinada é resposta final: não existe caminho B.
+ *
+ * `exigirId`: o objeto devolvido tem de ser o que pedimos (mesmo host, `id` igual ao pedido ou ao destino final do
+ * redirecionamento). Páginas de coleção têm `id` com parâmetros próprios, então lá basta o mesmo host.
+ */
+async function lerObjetoRemoto(
+  url: string,
+  opcoes: { exigirId?: boolean } = {},
+): Promise<{ leitura: LeituraAp; json: Record<string, unknown> | null; status: number | null }> {
+  const exigirId = opcoes.exigirId !== false;
+  try {
+    const r = await federation().inbox.fetcher.get(url, { accept: ACTIVITY_ACCEPT });
+    const leitura = classificarLeitura(r.status, r.json);
+    if (leitura !== 'ok') return { leitura, json: null, status: r.status };
+    const o = r.json as Record<string, unknown>;
+    const id = typeof o.id === 'string' ? o.id : '';
+    if (!sameHost(r.finalUrl || url, url)) return { leitura: 'falha', json: null, status: r.status };
+    if (exigirId && id !== url && id !== r.finalUrl && o.url !== url) return { leitura: 'falha', json: null, status: r.status };
+    if (exigirId && !sameHost(id, url)) return { leitura: 'falha', json: null, status: r.status };
+    return { leitura, json: o, status: r.status };
+  } catch {
+    return { leitura: 'falha', json: null, status: null };
   }
+}
 
-  // Fallback via Mastodon search API
-  const searchRes = await safeFetchText(
-    `https://${domain}/api/v2/search?q=${encodeURIComponent(postData.remoteObjectId || rawUrl)}&resolve=true&type=statuses&limit=1`,
-    {
-      timeoutMs: 6000,
-      maxBytes: 128_000,
-      headers: { Accept: 'application/json', 'User-Agent': userAgent },
-      allowedContentTypes: /^application\/json/i,
-    },
-  ).catch(() => null);
-
-  if (searchRes?.ok) {
-    try {
-      const parsed = JSON.parse(searchRes.text) as { statuses?: { id?: string }[] };
-      const foundId = parsed.statuses?.[0]?.id;
-      if (typeof foundId === 'string' && foundId) {
-        return { domain, statusId: foundId };
-      }
-    } catch {
-      // ignora
-    }
-  }
-  return null;
+/** O ator AP no formato que `resolveAccountToUser` entende. Sem contagens: o ator não as publica, e ausente != zero. */
+function contaDoAtor(ator: RemoteActorRecord): MastodonAccount {
+  return {
+    uri: ator.actorId,
+    url: ator.actorId,
+    acct: ator.handle,
+    username: ator.handle.split('@')[0],
+    display_name: ator.name,
+    note: ator.summary,
+    avatar: ator.iconUrl ?? undefined,
+    discoverable: ator.discoverable === true,
+    indexable: ator.indexable === true,
+  };
 }
 
 async function resolveAccountToUser(
@@ -194,12 +231,17 @@ async function resolveAccountToUser(
       avatarUrl,
       coverImageUrl,
       website: url,
-      followersCount,
-      followingCount,
-      postsCount,
+      // Só grava contagem que a origem INFORMOU. Autor vindo do ator ActivityPub não traz número, e gravar 0 por cima
+      // apagaria o que já sabíamos dele.
+      ...(typeof m.followers_count === 'number' ? { followersCount } : {}),
+      ...(typeof m.following_count === 'number' ? { followingCount } : {}),
+      ...(typeof m.statuses_count === 'number' ? { postsCount } : {}),
       dmPreference: 'everyone',
       profileVisibility: 'public',
       isRemoteFediverse: true,
+      // O que a pessoa disse sobre ser descoberta e indexada; só grava quando veio do ator (campo presente).
+      ...(typeof m.discoverable === 'boolean' ? { remoteDiscoverable: m.discoverable } : {}),
+      ...(typeof m.indexable === 'boolean' ? { remoteIndexable: m.indexable } : {}),
       remoteActorId: actorId,
       remoteDomain: itemDomain,
       remoteUrl: url,
@@ -236,13 +278,6 @@ async function resolveAccountToUser(
   };
 }
 
-/** O que o `/api/v1/statuses/{id}` da origem diz sobre os três contadores (campo ausente = a origem não informou). */
-const originCountsOf = (st: MastodonStatus) => ({
-  likes: st.favourites_count,
-  reposts: st.reblogs_count,
-  commentsCount: st.replies_count,
-});
-
 // ───────────────────────── revalidação dos contadores em segundo plano ─────────────────────────
 // Chamada pelo feed (`/api/ap/sync-counts`) para os posts remotos que acabaram de chegar perto da tela, para que o número
 // já apareça sem abrir o post. Custa uma busca a SERVIDOR ALHEIO por post, então tudo aqui existe para limitar essa
@@ -274,25 +309,19 @@ function remoteHostOf(post: RemotePostFields): string | null {
   }
 }
 
-const syncUserAgent = () => `HiperVerso/1.0 (+${federation().origin})`;
-
-/** Busca o status na origem e o traduz para o que o orquestrador entende (sem decidir nada). */
+/**
+ * Lê o objeto na origem e traduz para o que o orquestrador entende (sem decidir nada). Os números vêm do que o próprio
+ * `Note` publica (`likes`/`shares`/`replies` com `totalItems`); o que não vier fica como está.
+ */
 async function fetchRemoteStatus(location: { domain: string; statusId: string }): Promise<FetchedStatus> {
-  const res = await safeFetchText(`https://${location.domain}/api/v1/statuses/${encodeURIComponent(location.statusId)}`, {
-    timeoutMs: 5000,
-    maxBytes: 256_000,
-    headers: { Accept: 'application/json', 'User-Agent': syncUserAgent() },
-    allowedContentTypes: /^application\/json/i,
-  }).catch(() => null);
-  if (!res) return { kind: 'error' };
-  if (res.status === 429 || res.status === 503) return { kind: 'rate-limited', status: res.status, retryAfter: res.headers['retry-after'] };
-  if ([401, 403, 404, 410].includes(res.status)) return { kind: 'gone', status: res.status };
-  if (!res.ok) return { kind: 'error', status: res.status };
-  try {
-    return { kind: 'ok', origin: originCountsOf(JSON.parse(res.text) as MastodonStatus) };
-  } catch {
-    return { kind: 'error', status: res.status };
-  }
+  const r = await lerObjetoRemoto(location.statusId);
+  // A origem disse que o objeto não existe mais (410/Tombstone) ou não achou (404): a cópia local segue o ciclo de vida
+  // (apaga já, ou oculta e só apaga confirmado). Antes ela ficava no ar para sempre.
+  if (r.leitura === 'apagado' || r.leitura === 'sumiu') await aplicarCicloAoPost(location.statusId, r.leitura).catch(() => null);
+  if (r.leitura === 'ok' && r.json) return { kind: 'ok', origin: contagensDoNote(r.json) };
+  if (r.leitura === 'limitada') return { kind: 'rate-limited', status: r.status ?? 429 };
+  if (r.leitura === 'recusada' || r.leitura === 'apagado' || r.leitura === 'sumiu') return { kind: 'gone', status: r.status ?? 404 };
+  return { kind: 'error', ...(r.status !== null ? { status: r.status } : {}) };
 }
 
 const syncOnePost = createCountSyncer<RemotePostFields>({
@@ -303,7 +332,7 @@ const syncOnePost = createCountSyncer<RemotePostFields>({
   },
   hostOf: remoteHostOf,
   checkedAtMsOf: (post) => post.remoteCountsAtMs,
-  locate: (post) => resolveStatusLocation(post, syncUserAgent()),
+  locate: (post) => localizarObjeto(post),
   fetchStatus: fetchRemoteStatus,
   apply: async (id, origin, fetchedAtMs) => {
     const decisions = await applyRemoteCounts(id, { origin, fetchedAtMs });
@@ -336,80 +365,47 @@ export async function syncRemotePostComments(postId: string): Promise<number> {
   if (!postData.isRemoteFediverse && !postId.startsWith('ap_')) return 0;
 
   const f = federation();
-  const userAgent = `HiperVerso/1.0 (+${f.origin})`;
-  const loc = await resolveStatusLocation(postData, userAgent);
+  const loc = await localizarObjeto(postData);
   if (!loc) return 0;
+  const paiUri = loc.statusId;
+  const objeto = await lerObjetoRemoto(paiUri);
+  // Abrir o post também é o momento de conferir se ele ainda existe na origem -- e de restaurar o que ocultamos por um
+  // 404 que não se confirmou.
+  await aplicarCicloAoPost(paiUri, objeto.leitura).catch(() => null);
+  if (objeto.leitura !== 'ok' || !objeto.json) return 0;
 
-  const [ctxRes, statusRes] = await Promise.all([
-    safeFetchText(
-      `https://${loc.domain}/api/v1/statuses/${encodeURIComponent(loc.statusId)}/context`,
-      {
-        timeoutMs: 6000,
-        maxBytes: 512_000,
-        headers: { Accept: 'application/json', 'User-Agent': userAgent },
-        allowedContentTypes: /^application\/json/i,
-      },
-    ).catch(() => null),
-    safeFetchText(
-      `https://${loc.domain}/api/v1/statuses/${encodeURIComponent(loc.statusId)}`,
-      {
-        timeoutMs: 6000,
-        maxBytes: 256_000,
-        headers: { Accept: 'application/json', 'User-Agent': userAgent },
-        allowedContentTypes: /^application\/json/i,
-      },
-    ).catch(() => null),
-  ]);
+  // A origem é a fonte do número PÚBLICO; a regra (counterPolicy.ts) decide quando subir, quando descer e quando
+  // desconfiar. Dentro de transação, para não desfazer uma curtida daqui somada no meio do caminho.
+  const origem = contagensDoNote(objeto.json);
+  if (Object.keys(origem).length > 0) await applyRemoteCounts(postId, { origin: origem }).catch(() => null);
 
-  if (statusRes?.ok) {
-    try {
-      // A origem é a fonte do número PÚBLICO; a regra (counterPolicy.ts) decide quando subir, quando descer (alguém descurtiu
-      // no Fediverso) e quando desconfiar (zero de uma instância que esconde contagens). Dentro de uma transação, para não
-      // desfazer uma curtida daqui somada no meio do caminho.
-      await applyRemoteCounts(postId, { origin: originCountsOf(JSON.parse(statusRes.text) as MastodonStatus) }).catch(() => null);
-    } catch {
-      // ignora erro de parse do status remoto
-    }
-  }
-
-  if (!ctxRes?.ok) return 0;
-  let descendants: MastodonStatus[] = [];
-  try {
-    const parsed = JSON.parse(ctxRes.text) as { descendants?: MastodonStatus[] };
-    if (Array.isArray(parsed.descendants)) descendants = parsed.descendants.slice(0, 40);
-  } catch {
-    return 0;
-  }
-
-  if (descendants.length === 0) return 0;
+  // Antes: `/api/v1/statuses/{id}/context` sem autenticação, que devolve a conversa inteira montada pelo servidor --
+  // inclusive respostas que ele nunca federou. Agora: a coleção `replies` que o próprio objeto publica.
+  const ids = await idsDasRespostas(objeto.json.replies, paiUri, MAX_RESPOSTAS);
+  await reconferirRespostasAusentes(postId, new Set(ids));
+  if (ids.length === 0) return 0;
 
   const ownHostLower = f.ownHost.toLowerCase();
-  const statusIdToCommentId = new Map<string, string>();
-  for (const s of descendants) {
-    const objId = s.uri || s.url || '';
-    if (!objId || !s.id) continue;
-    const cId = remotePostIdOf(objId);
-    statusIdToCommentId.set(s.id, cId);
-  }
-
   let added = 0;
-  for (const s of descendants) {
-    const objId = s.uri || s.url || '';
-    const text = typeof s.content === 'string' ? stripHtml(s.content).slice(0, 2000) : '';
-    if (!objId || !text || !s.account) continue;
-    if (isFromSuspendedFediverseDomain({ remoteUrl: objId })) continue;
+  let conferidas = 0;
+  for (const id of ids) {
+    if (isFromSuspendedFediverseDomain({ remoteUrl: id })) continue;
+    const resposta = await respostaConferida(id, paiUri);
+    if (!resposta) continue;
+    conferidas++;
+    const { note, autorId } = resposta;
+    const text = typeof note.content === 'string' ? stripHtml(note.content).slice(0, 2000) : '';
+    if (!text) continue;
 
-    const resolvedAuthor = await resolveAccountToUser(s.account, loc.domain, ownHostLower);
+    const ator = await resolveRemoteActor(f.inbox, autorId).catch(() => null);
+    if (!ator || !ator.ok) continue;
+    const resolvedAuthor = await resolveAccountToUser(contaDoAtor(ator.actor), ator.actor.domain, ownHostLower);
     if (!resolvedAuthor) continue;
 
-    const commentId = remotePostIdOf(objId);
-    const parentCommentId =
-      s.in_reply_to_id && s.in_reply_to_id !== loc.statusId
-        ? (statusIdToCommentId.get(s.in_reply_to_id) ?? null)
-        : null;
-    const createdMs = s.created_at && Number.isFinite(Date.parse(s.created_at))
-      ? Date.parse(s.created_at)
-      : Date.now();
+    const commentId = remotePostIdOf(id);
+    const publicado = typeof note.published === 'string' ? Date.parse(note.published) : NaN;
+    const createdMs = Number.isFinite(publicado) ? publicado : Date.now();
+    const contagens = contagensDoNote(note);
 
     const cRef = db.collection('posts').doc(postId).collection('comments').doc(commentId);
     const existing = await cRef.get();
@@ -425,170 +421,169 @@ export async function syncRemotePostComments(postId: string): Promise<number> {
         isRemoteFediverse: !resolvedAuthor.isLocal,
         remoteActorUrl: resolvedAuthor.actorId,
         remoteHandle: resolvedAuthor.username,
-        apObjectId: objId,
+        apObjectId: id,
         parentPostId: postId,
         postAuthorId: postData.userId || '',
         postVisibility: postData.visibility || 'public',
-        parentCommentId,
+        parentCommentId: null,
         text,
         hasMedia: false,
         createdAt: Timestamp.fromMillis(createdMs),
-        likes: typeof s.favourites_count === 'number' ? s.favourites_count : 0,
-        repostsCount: typeof s.reblogs_count === 'number' ? s.reblogs_count : 0,
-        repliesCount: typeof s.replies_count === 'number' ? s.replies_count : 0,
+        likes: contagens.likes ?? 0,
+        repostsCount: contagens.reposts ?? 0,
+        repliesCount: contagens.commentsCount ?? 0,
         isDeleted: false,
       });
       added++;
     } else if (!existing.data()?.apObjectId) {
-      await cRef.update({ apObjectId: objId }).catch(() => null);
+      await cRef.update({ apObjectId: id }).catch(() => null);
     }
   }
 
-  // Piso, não valor: o `postData` lido no começo ficou velho durante as buscas e a materialização (uma comentada daqui
-  // somada pela Function nesse meio tempo seria desfeita por um `update` com o número antigo). Na transação, só sobe.
-  await applyRemoteCounts(postId, { lowerBound: { commentsCount: descendants.length } }).catch(() => null);
+  // Piso, não valor: só sobe, e só com o que foi CONFERIDO.
+  if (conferidas > 0) await applyRemoteCounts(postId, { lowerBound: { commentsCount: conferidas } }).catch(() => null);
   return added;
 }
 
-async function fetchReactorsForStatus(
-  loc: { domain: string; statusId: string },
-  mode: 'likes' | 'reposts',
-  expectedCount: number,
-  callerUid?: string | null,
-): Promise<{ users: User[]; restricted: boolean }> {
-  const f = federation();
-  const userAgent = `HiperVerso/1.0 (+${f.origin})`;
-  const db = adminFirestore();
+/** No máximo tantas respostas conferidas por sincronização: cada uma é um GET num servidor alheio. */
+const MAX_RESPOSTAS = 20;
 
-  const endpoint = mode === 'likes' ? 'favourited_by' : 'reblogged_by';
-  const res = await safeFetchText(
-    `https://${loc.domain}/api/v1/statuses/${encodeURIComponent(loc.statusId)}/${endpoint}?limit=40`,
-    {
-      timeoutMs: 6000,
-      maxBytes: 512_000,
-      headers: { Accept: 'application/json', 'User-Agent': userAgent },
-      allowedContentTypes: /^application\/json/i,
-    },
-  ).catch(() => null);
+/** No máximo tantas cópias de resposta rechecadas por abertura do post. */
+const MAX_RECONFERENCIAS = 5;
 
-  if (!res?.ok) {
-    return { users: [], restricted: expectedCount > 0 };
+/**
+ * Resposta apagada SOME da coleção `replies` -- e por isso nunca mais seria buscada, e a nossa cópia ficaria no ar. Aqui
+ * as cópias remotas que guardamos e que não apareceram na coleção são conferidas no servidor de quem as escreveu (poucas
+ * por vez) e seguem o mesmo ciclo do post. Ausência na página não é prova de nada (pode ser paginação); a resposta da
+ * origem é.
+ */
+async function reconferirRespostasAusentes(postId: string, listadas: Set<string>): Promise<void> {
+  const snap = await adminFirestore()
+    .collection('posts').doc(postId).collection('comments')
+    .where('isRemoteFediverse', '==', true)
+    .limit(40)
+    .get()
+    .catch(() => null);
+  if (!snap) return;
+  let conferidas = 0;
+  for (const c of snap.docs) {
+    if (conferidas >= MAX_RECONFERENCIAS) break;
+    const apObjectId = c.data().apObjectId;
+    if (typeof apObjectId !== 'string' || !apObjectId.startsWith('https://') || listadas.has(apObjectId)) continue;
+    const dominio = hostDe(apObjectId);
+    if (!dominio || !(await podeLer(dominio))) continue;
+    conferidas++;
+    const r = await lerObjetoRemoto(apObjectId);
+    await aplicarCicloAoDocumento(c.ref, r.leitura).catch(() => null);
   }
-  let items: MastodonAccount[] = [];
-  try {
-    const parsed = JSON.parse(res.text) as MastodonAccount[];
-    if (Array.isArray(parsed)) items = parsed;
-  } catch {
-    return { users: [], restricted: expectedCount > 0 };
-  }
-
-  const ownHostLower = f.ownHost.toLowerCase();
-  const resolvedList = (
-    await Promise.all(items.map((m) => resolveAccountToUser(m, loc.domain, ownHostLower)))
-  ).filter((x): x is NonNullable<typeof x> => Boolean(x));
-
-  if (callerUid && resolvedList.length > 0) {
-    const followChecks = await Promise.all(
-      resolvedList.map((r) =>
-        r.isLocal
-          ? db.collection('users').doc(callerUid).collection('following').doc(r.uid).get()
-          : db
-              .collection('ap_following')
-              .doc(callerUid)
-              .collection('actors')
-              .doc(remoteFollowDocIdOf(r.actorId))
-              .get(),
-      ),
-    );
-    followChecks.forEach((snap, idx) => {
-      resolvedList[idx].userObj.isFollowing = snap.exists;
-    });
-  }
-
-  const users = resolvedList.map((r) => r.userObj);
-  return { users, restricted: users.length === 0 && expectedCount > 0 };
 }
+
+/**
+ * Os ids das respostas publicadas na coleção `replies` do objeto: a primeira página e, no máximo, a seguinte (o Mastodon
+ * põe as respostas do próprio autor na primeira e as de outras contas na `next`). Toda página tem de morar no mesmo
+ * servidor do post: uma coleção que aponta para outro host não nos leva a ele.
+ */
+async function idsDasRespostas(colecao: unknown, paiUri: string, maxIds: number): Promise<string[]> {
+  const ids: string[] = [];
+  const juntar = (pagina: unknown) => {
+    for (const item of itensDe(pagina)) {
+      const id = idDe(item);
+      if (id && !ids.includes(id)) ids.push(id);
+    }
+  };
+  const buscarPagina = async (url: string): Promise<Record<string, unknown> | null> => {
+    if (!sameHost(url, paiUri)) return null;
+    const r = await lerObjetoRemoto(url, { exigirId: false });
+    return r.leitura === 'ok' ? r.json : null;
+  };
+
+  let alvo: unknown = colecao;
+  if (typeof colecao === 'string') {
+    if (!colecao.startsWith('https://')) return [];
+    alvo = await buscarPagina(colecao);
+    if (!alvo) return [];
+  }
+  juntar(alvo);
+
+  const primeira = primeiraPagina(alvo);
+  let pagina: Record<string, unknown> | null = null;
+  if (primeira && 'embutida' in primeira) pagina = primeira.embutida;
+  else if (primeira && 'url' in primeira) pagina = await buscarPagina(primeira.url);
+  if (pagina) {
+    juntar(pagina);
+    const proxima = pagina.next;
+    if (typeof proxima === 'string' && proxima.startsWith('https://') && ids.length < maxIds) {
+      const seguinte = await buscarPagina(proxima);
+      if (seguinte) juntar(seguinte);
+    }
+  }
+  return ids.slice(0, maxIds);
+}
+
+/**
+ * Uma resposta só entra conferida NO SERVIDOR DE QUEM A ESCREVEU: o objeto é o que pedimos, é público, responde a ESTE
+ * post e o autor mora no mesmo host do objeto. Domínio suspenso ou em pausa de consentimento nem é consultado.
+ */
+async function respostaConferida(
+  id: string,
+  paiUri: string,
+): Promise<{ note: Record<string, unknown>; autorId: string } | null> {
+  const dominio = hostDe(id);
+  if (!dominio || isOwnHostUrl(id, federation().ownHost)) return null;
+  if (!(await podeLer(dominio))) return null;
+  const r = await lerObjetoRemoto(id);
+  if (r.leitura !== 'ok' || !r.json) return null;
+  const o = r.json;
+  if (o.type !== 'Note' && o.type !== 'Article') return null;
+  const brutoPai = o.inReplyTo;
+  const inReplyTo = typeof brutoPai === 'string'
+    ? brutoPai
+    : brutoPai && typeof brutoPai === 'object' && typeof (brutoPai as { id?: unknown }).id === 'string'
+      ? (brutoPai as { id: string }).id
+      : null;
+  if (inReplyTo !== paiUri) return null;
+  const enderecos = [...(Array.isArray(o.to) ? o.to : []), ...(Array.isArray(o.cc) ? o.cc : [])];
+  if (!enderecos.includes(AS_PUBLIC)) return null;
+  const brutoAutor = Array.isArray(o.attributedTo) ? o.attributedTo[0] : o.attributedTo;
+  const autorId = typeof brutoAutor === 'string'
+    ? brutoAutor
+    : brutoAutor && typeof brutoAutor === 'object' && typeof (brutoAutor as { id?: unknown }).id === 'string'
+      ? (brutoAutor as { id: string }).id
+      : null;
+  if (!autorId || !autorId.startsWith('https://') || !sameHost(autorId, id)) return null;
+  return { note: o, autorId };
+}
+
+// ───────────────────────── quem curtiu / quem repostou ─────────────────────────
+// O ActivityPub NÃO publica a lista de quem curtiu ou repostou: o Mastodon expõe só o `totalItems` de `likes`/`shares`.
+// Antes estas duas funções montavam a lista pela REST (`/favourited_by`, `/reblogged_by`) sem autenticação -- pegar do
+// outro servidor algo que ele não federou. Agora não buscam nada fora. Quem reagiu e chegou até nós pelo inbox (Like,
+// Announce) já está nas subcoleções locais, que a tela lê direto; o resto da lista fica onde mora, no servidor de origem.
+// `restricted` diz à tela que existe contagem sem lista, para ela oferecer o link para a origem em vez de "ninguém".
 
 export async function fetchAndMaterializeRemotePostReactors(
   postId: string,
   mode: 'likes' | 'reposts',
-  callerUid?: string | null,
+  _callerUid?: string | null,
 ): Promise<{ users: User[]; restricted: boolean }> {
-  const db = adminFirestore();
-  const postSnap = await db.collection('posts').doc(postId).get();
-  if (!postSnap.exists) return { users: [], restricted: false };
-  const postData = postSnap.data() as {
-    remoteUrl?: string;
-    remoteObjectId?: string;
-    remoteActorId?: string;
-    isRemoteFediverse?: boolean;
-    likes?: number;
-    reposts?: number;
-  };
-  if (!postData.isRemoteFediverse && !postId.startsWith('ap_')) {
-    return { users: [], restricted: false };
-  }
-
-  const expectedCount =
-    mode === 'likes' ? Number(postData.likes ?? 0) : Number(postData.reposts ?? 0);
-  const f = federation();
-  const userAgent = `HiperVerso/1.0 (+${f.origin})`;
-  const loc = await resolveStatusLocation(postData, userAgent);
-  if (!loc) return { users: [], restricted: expectedCount > 0 };
-
-  const result = await fetchReactorsForStatus(loc, mode, expectedCount, callerUid);
-  // A lista traz só a primeira página: é um PISO (há pelo menos esta gente), nunca o total. Só faz o contador subir.
-  if (result.users.length > 0) {
-    await applyRemoteCounts(postId, { lowerBound: { [mode]: result.users.length } }).catch(() => null);
-  }
-  return result;
+  const snap = await adminFirestore().collection('posts').doc(postId).get();
+  if (!snap.exists) return { users: [], restricted: false };
+  const d = snap.data() as { isRemoteFediverse?: boolean; likes?: number; reposts?: number };
+  if (!d.isRemoteFediverse && !postId.startsWith('ap_')) return { users: [], restricted: false };
+  const esperado = mode === 'likes' ? Number(d.likes ?? 0) : Number(d.reposts ?? 0);
+  return { users: [], restricted: esperado > 0 };
 }
 
 export async function fetchAndMaterializeRemoteCommentReactors(
   postId: string,
   commentId: string,
   mode: 'likes' | 'reposts',
-  callerUid?: string | null,
+  _callerUid?: string | null,
 ): Promise<{ users: User[]; restricted: boolean }> {
-  const db = adminFirestore();
-  const commentSnap = await db
-    .collection('posts')
-    .doc(postId)
-    .collection('comments')
-    .doc(commentId)
-    .get();
-  if (!commentSnap.exists) return { users: [], restricted: false };
-
-  const commentData = commentSnap.data() as {
-    apObjectId?: string;
-    remoteUrl?: string;
-    remoteObjectId?: string;
-    remoteActorUrl?: string;
-    isRemoteFediverse?: boolean;
-    likes?: number;
-    repostsCount?: number;
-  };
-  if (!commentData.isRemoteFediverse && !commentId.startsWith('ap_')) {
-    return { users: [], restricted: false };
-  }
-
-  const expectedCount =
-    mode === 'likes' ? Number(commentData.likes ?? 0) : Number(commentData.repostsCount ?? 0);
-  const f = federation();
-  const userAgent = `HiperVerso/1.0 (+${f.origin})`;
-  const loc = await resolveStatusLocation(
-    {
-      remoteUrl: commentData.remoteUrl || commentData.apObjectId,
-      remoteObjectId: commentData.remoteObjectId || commentData.apObjectId,
-      remoteActorId: commentData.remoteActorUrl,
-    },
-    userAgent,
-  );
-  if (!loc) return { users: [], restricted: expectedCount > 0 };
-
-  const result = await fetchReactorsForStatus(loc, mode, expectedCount, callerUid);
-  // O contador a subir é o do COMENTÁRIO. Antes isto gravava o tamanho da lista de reagentes do comentário no contador do POST
-  // pai (`posts/{postId}.likes`/`.reposts`), inflando o post toda vez que alguém abria a lista de curtidas de um comentário.
-  await raiseRemoteCommentCount(postId, commentId, mode === 'likes' ? 'likes' : 'repostsCount', result.users.length).catch(() => null);
-  return result;
+  const snap = await adminFirestore().collection('posts').doc(postId).collection('comments').doc(commentId).get();
+  if (!snap.exists) return { users: [], restricted: false };
+  const d = snap.data() as { isRemoteFediverse?: boolean; likes?: number; repostsCount?: number };
+  if (!d.isRemoteFediverse && !commentId.startsWith('ap_')) return { users: [], restricted: false };
+  const esperado = mode === 'likes' ? Number(d.likes ?? 0) : Number(d.repostsCount ?? 0);
+  return { users: [], restricted: esperado > 0 };
 }

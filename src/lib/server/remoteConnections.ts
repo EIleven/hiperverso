@@ -6,6 +6,8 @@ import type { User } from '@/lib/types';
 import { decideInstance } from '@/lib/activitypub/gate';
 import { safeFetchText } from '@/lib/security/safe-fetch';
 import { federation } from '@/lib/server/federation';
+import { podeLerDoDominio } from '@/lib/server/leituraRemota';
+import { lerConsentimentoDoAtor } from '@/lib/activitypub/consentimentoDoAtor';
 import { adminFirestore } from '@/lib/server/firebaseAdmin';
 import { remoteUserIdOf } from '@/lib/server/remoteMaterialize';
 import { getAnySigningHeaders, stripHtml } from '@/lib/server/remoteProfile';
@@ -71,9 +73,9 @@ export async function fetchAndMaterializeRemoteConnections(
 
   const politica = await f.store.getInstancePolicy();
   if (decideInstance(domain, politica, f.ownHost).decision === 'reject') return { users: [] };
+  if (!(await podeLerDoDominio(domain)).pode) return { users: [] };
 
   const userAgent = `HiperVerso/1.0 (+${f.origin})`;
-  const localUsername = (profileData.username || '').split('@')[0];
   let sawRestricted = false;
 
   const fetchApWithOptionalSigning = async (
@@ -118,95 +120,21 @@ export async function fetchAndMaterializeRemoteConnections(
     avatarUrl: string;
     coverImageUrl: string;
     url: string;
-    followersCount: number;
-    followingCount: number;
-    postsCount: number;
+    /** Contagens só quando a origem informa. O ator ActivityPub não publica número: ausente não vira zero. */
+    followersCount?: number;
+    followingCount?: number;
+    postsCount?: number;
+    /** `toot:discoverable` / `toot:indexable` lidos do ator. Só `true` é sim. */
+    discoverable?: boolean;
+    indexable?: boolean;
     /** Só quando a origem diz (API Mastodon: `locked`); ausente = não se sabe. */
     locked?: boolean;
   }[] = [];
 
-  // 1. Tenta API pública Mastodon/Pleroma/Akkoma/GoToSocial (/api/v1/accounts/:id/followers|following)
-  if (localUsername) {
-    const lookupRes = await safeFetchText(
-      `https://${domain}/api/v1/accounts/lookup?acct=${encodeURIComponent(localUsername)}`,
-      {
-        timeoutMs: 5000,
-        maxBytes: 64_000,
-        headers: { Accept: 'application/json', 'User-Agent': userAgent },
-        allowedContentTypes: /^application\/json/i,
-      },
-    ).catch(() => null);
-
-    let mastoId: string | null = null;
-    if (lookupRes?.ok) {
-      try {
-        const parsed = JSON.parse(lookupRes.text) as { id?: string };
-        if (typeof parsed.id === 'string' && parsed.id) mastoId = parsed.id;
-      } catch {
-        // ignora
-      }
-    }
-
-    if (mastoId) {
-      const listRes = await safeFetchText(
-        `https://${domain}/api/v1/accounts/${encodeURIComponent(mastoId)}/${type}?limit=80`,
-        {
-          timeoutMs: 6000,
-          maxBytes: 512_000,
-          headers: { Accept: 'application/json', 'User-Agent': userAgent },
-          allowedContentTypes: /^application\/json/i,
-        },
-      ).catch(() => null);
-
-      if (listRes && (listRes.status === 400 || listRes.status === 401 || listRes.status === 403)) {
-        sawRestricted = true;
-      }
-
-      if (listRes?.ok) {
-        try {
-          const items = JSON.parse(listRes.text) as MastodonAccount[];
-          if (Array.isArray(items)) {
-            for (const m of items) {
-              const actorId =
-                (typeof m.uri === 'string' && m.uri.startsWith('https://') ? m.uri : null) ||
-                (typeof m.url === 'string' && m.url.startsWith('https://') ? m.url : null);
-              if (!actorId) continue;
-
-              const acct = typeof m.acct === 'string' && m.acct ? m.acct : m.username || '';
-              if (!acct) continue;
-              const handle = acct.includes('@') ? acct : `${acct}@${domain}`;
-              const itemDomain = handle.split('@').pop()?.toLowerCase() || remoteDomainFromUrl(actorId, domain);
-
-              accounts.push({
-                actorId,
-                handle,
-                domain: itemDomain,
-                name: (typeof m.display_name === 'string' && m.display_name.trim()) || m.username || handle.split('@')[0],
-                bio: typeof m.note === 'string' ? stripHtml(m.note).slice(0, 500) : '',
-                avatarUrl:
-                  typeof m.avatar === 'string' && m.avatar.startsWith('https://') && !m.avatar.includes('missing.png')
-                    ? m.avatar
-                    : '',
-                coverImageUrl:
-                  typeof m.header === 'string' && m.header.startsWith('https://') && !m.header.includes('missing.png')
-                    ? m.header
-                    : '',
-                url: (typeof m.url === 'string' && m.url.startsWith('https://') ? m.url : actorId),
-                followersCount: typeof m.followers_count === 'number' ? m.followers_count : 0,
-                followingCount: typeof m.following_count === 'number' ? m.following_count : 0,
-                postsCount: typeof m.statuses_count === 'number' ? m.statuses_count : 0,
-                ...(typeof m.locked === 'boolean' ? { locked: m.locked } : {}),
-              });
-            }
-          }
-        } catch {
-          // ignora
-        }
-      }
-    }
-  }
-
-  // 2. Fallback ActivityPub OrderedCollection caso o servidor não exponha API Mastodon
+  // Só a coleção ActivityPub do ator (`followers`/`following`). Aqui havia, ANTES dela, uma leitura pela API REST do
+  // Mastodon (`/api/v1/accounts/lookup` + `/api/v1/accounts/:id/followers|following`), sem autenticação. É a API do
+  // aplicativo de quem tem conta lá, não o protocolo de federação, e servia justamente quando a coleção AP não mostrava a
+  // lista. Coleção que traz só o `totalItems` é a pessoa escolhendo esconder a rede: isso se respeita, não se contorna.
   if (accounts.length === 0 && profileData.remoteActorId) {
     const actorRes = await fetchApWithOptionalSigning(
       profileData.remoteActorId,
@@ -269,8 +197,26 @@ export async function fetchAndMaterializeRemoteConnections(
         }
       }
 
+      // Cada conta da lista mora num servidor; buscar o ator dela é LER daquele servidor. Domínio suspenso ou em pausa de
+      // consentimento fica de fora antes da busca, não depois. Uma decisão por domínio, reaproveitada na lista toda.
+      const decisaoPorDominio = new Map<string, boolean>();
+      const liberados: string[] = [];
+      for (const url of itemUrls.slice(0, 60)) {
+        if (liberados.length >= 30) break;
+        let dominioDoItem = '';
+        try {
+          dominioDoItem = new URL(url).hostname.toLowerCase();
+        } catch {
+          continue;
+        }
+        if (!decisaoPorDominio.has(dominioDoItem)) {
+          decisaoPorDominio.set(dominioDoItem, (await podeLerDoDominio(dominioDoItem)).pode);
+        }
+        if (decisaoPorDominio.get(dominioDoItem)) liberados.push(url);
+      }
+
       const settled = await Promise.all(
-        itemUrls.slice(0, 30).map(async (actorUrl) => {
+        liberados.map(async (actorUrl) => {
           const res = await fetchApWithOptionalSigning(
             actorUrl,
             'application/activity+json, application/ld+json, application/json',
@@ -287,6 +233,8 @@ export async function fetchAndMaterializeRemoteConnections(
               url?: string;
               icon?: { url?: string } | { url?: string }[];
               image?: { url?: string } | { url?: string }[];
+              discoverable?: unknown;
+              indexable?: unknown;
             };
             const id = typeof a.id === 'string' && a.id.startsWith('https://') ? a.id : actorUrl;
             const d = remoteDomainFromUrl(id, domain);
@@ -302,9 +250,7 @@ export async function fetchAndMaterializeRemoteConnections(
               avatarUrl: typeof iconRaw === 'string' && iconRaw.startsWith('https://') ? iconRaw : '',
               coverImageUrl: typeof imgRaw === 'string' && imgRaw.startsWith('https://') ? imgRaw : '',
               url: typeof a.url === 'string' && a.url.startsWith('https://') ? a.url : id,
-              followersCount: 0,
-              followingCount: 0,
-              postsCount: 0,
+              ...lerConsentimentoDoAtor(a),
             };
           } catch {
             return null;
@@ -317,101 +263,8 @@ export async function fetchAndMaterializeRemoteConnections(
     }
   }
 
-  // 3. Fallback API Misskey/Sharkey/Firefish (/api/users/show + /api/users/followers|following)
-  if (accounts.length === 0 && localUsername) {
-    const showRes = await safeFetchText(`https://${domain}/api/users/show`, {
-      method: 'POST',
-      timeoutMs: 5000,
-      maxBytes: 96_000,
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'User-Agent': userAgent,
-      },
-      body: JSON.stringify({ username: localUsername }),
-      allowedContentTypes: /^application\/json/i,
-    }).catch(() => null);
-
-    if (showRes?.ok) {
-      try {
-        const misskeyUser = JSON.parse(showRes.text) as {
-          id?: string;
-          followersVisibility?: string;
-          followingVisibility?: string;
-        };
-        const isPrivate =
-          (type === 'followers' && misskeyUser.followersVisibility === 'private') ||
-          (type === 'following' && misskeyUser.followingVisibility === 'private');
-        if (isPrivate) {
-          sawRestricted = true;
-        } else if (typeof misskeyUser.id === 'string' && misskeyUser.id) {
-          const listRes = await safeFetchText(`https://${domain}/api/users/${type}`, {
-            method: 'POST',
-            timeoutMs: 6000,
-            maxBytes: 512_000,
-            headers: {
-              'Content-Type': 'application/json',
-              Accept: 'application/json',
-              'User-Agent': userAgent,
-            },
-            body: JSON.stringify({ userId: misskeyUser.id, limit: 60 }),
-            allowedContentTypes: /^application\/json/i,
-          }).catch(() => null);
-
-          if (listRes && (listRes.status === 400 || listRes.status === 401 || listRes.status === 403)) {
-            sawRestricted = true;
-          } else if (listRes?.ok) {
-            type MisskeyRelUser = {
-              id?: string;
-              username?: string;
-              host?: string | null;
-              name?: string | null;
-              avatarUrl?: string | null;
-              bannerUrl?: string | null;
-              description?: string | null;
-              uri?: string | null;
-              url?: string | null;
-              followersCount?: number;
-              followingCount?: number;
-              notesCount?: number;
-            };
-            const items = JSON.parse(listRes.text) as Array<{
-              follower?: MisskeyRelUser;
-              followee?: MisskeyRelUser;
-            }>;
-            if (Array.isArray(items)) {
-              for (const entry of items) {
-                const u = type === 'followers' ? entry.follower : entry.followee;
-                if (!u || typeof u.username !== 'string' || !u.username) continue;
-                const itemDomain = (typeof u.host === 'string' && u.host ? u.host : domain).toLowerCase();
-                const actorId =
-                  (typeof u.uri === 'string' && u.uri.startsWith('https://') ? u.uri : null) ||
-                  (typeof u.url === 'string' && u.url.startsWith('https://') ? u.url : null) ||
-                  (u.id ? `https://${itemDomain}/users/${u.id}` : '');
-                if (!actorId) continue;
-
-                accounts.push({
-                  actorId,
-                  handle: `${u.username}@${itemDomain}`,
-                  domain: itemDomain,
-                  name: (typeof u.name === 'string' && u.name.trim()) || u.username,
-                  bio: typeof u.description === 'string' ? stripHtml(u.description).slice(0, 500) : '',
-                  avatarUrl: typeof u.avatarUrl === 'string' && u.avatarUrl.startsWith('https://') ? u.avatarUrl : '',
-                  coverImageUrl: typeof u.bannerUrl === 'string' && u.bannerUrl.startsWith('https://') ? u.bannerUrl : '',
-                  url: (typeof u.url === 'string' && u.url.startsWith('https://') ? u.url : actorId),
-                  followersCount: typeof u.followersCount === 'number' ? u.followersCount : 0,
-                  followingCount: typeof u.followingCount === 'number' ? u.followingCount : 0,
-                  postsCount: typeof u.notesCount === 'number' ? u.notesCount : 0,
-                });
-              }
-            }
-          }
-        }
-      } catch {
-        // ignora
-      }
-    }
-  }
+  // Também saiu daqui a leitura pela API de APLICATIVO do Misskey/Sharkey/Firefish (`/api/users/show` +
+  // `/api/users/followers|following`): mesmo problema da REST do Mastodon -- não é federação, é a API do app de lá.
 
   if (accounts.length === 0) return { users: [], restricted: sawRestricted };
 
@@ -553,9 +406,12 @@ export async function fetchAndMaterializeRemoteConnections(
         avatarUrl: acc.avatarUrl,
         coverImageUrl: acc.coverImageUrl,
         website: acc.url,
-        followersCount: acc.followersCount,
-        followingCount: acc.followingCount,
-        postsCount: acc.postsCount,
+        // Só o que a origem informou: gravar 0 aqui zerava, a cada listagem, os números já guardados de cada conta.
+        ...(typeof acc.followersCount === 'number' ? { followersCount: acc.followersCount } : {}),
+        ...(typeof acc.followingCount === 'number' ? { followingCount: acc.followingCount } : {}),
+        ...(typeof acc.postsCount === 'number' ? { postsCount: acc.postsCount } : {}),
+        ...(typeof acc.discoverable === 'boolean' ? { remoteDiscoverable: acc.discoverable } : {}),
+        ...(typeof acc.indexable === 'boolean' ? { remoteIndexable: acc.indexable } : {}),
         dmPreference: 'everyone',
         profileVisibility: 'public',
         isRemoteFediverse: true,
@@ -588,9 +444,9 @@ export async function fetchAndMaterializeRemoteConnections(
       avatarUrl: acc.avatarUrl,
       coverImageUrl: acc.coverImageUrl,
       website: acc.url,
-      followersCount: acc.followersCount,
-      followingCount: acc.followingCount,
-      postsCount: acc.postsCount,
+      followersCount: acc.followersCount ?? 0,
+      followingCount: acc.followingCount ?? 0,
+      postsCount: acc.postsCount ?? 0,
       dmPreference: 'none',
       isAdmin: false,
       isModerator: false,

@@ -144,6 +144,7 @@ export type NotificationType =
   | "mention_in_comment"
   | "new_post_from_user"
   | "new_message"
+  | "alt_text_request"
   | "welcome";
 
 export type NotificationActor = {

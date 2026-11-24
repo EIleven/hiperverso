@@ -54,12 +54,12 @@ export default function AboutPage() {
               <li>
                 <strong>Código aberto à auditoria e Pull Requests:</strong> A base técnica de revisão e melhorias está pública em{' '}
                 <a
-                  href="https://github.com/EIleven/exe-lula-revisao"
+                  href="https://github.com/EIleven/hiperverso"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-primary underline underline-offset-4 hover:opacity-80"
                 >
-                  github.com/EIleven/exe-lula-revisao
+                  github.com/EIleven/hiperverso
                 </a>{' '}
                 e pelo portal{' '}
                 <a href="/pt-BR/dev" className="text-primary underline underline-offset-4 hover:opacity-80">

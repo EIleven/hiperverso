@@ -4,7 +4,7 @@
 //
 // Uso:  node scripts/publicar-apk.mjs <caminho-do-apk> ["nota 1" "nota 2" ...]
 //
-// Recusa o arquivo se: o pacote nao for com.soberan.app, a assinatura nao verificar, o certificado nao for o da keystore
+// Recusa o arquivo se: o pacote nao for app.hiperverso, a assinatura nao verificar, o certificado nao for o da keystore
 // do projeto (o mesmo do APK 1.0.0: sem isso o Android nao atualiza o app por cima) ou o versionCode nao subir.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,7 +12,7 @@ import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const PACKAGE = 'com.soberan.app';
+const PACKAGE = 'app.hiperverso';
 // SHA-256 do certificado de assinatura do projeto (publico; identifica a chave, nao a revela).
 const CERT_SHA256 = '87d26afdfca967382d74c13dc1de13b342a427435576567593efb6fd68119c7a';
 
@@ -66,17 +66,28 @@ if (fs.existsSync(jsonPath)) {
   if (versionCode <= prev.versionCode) fail(`versionCode ${versionCode} precisa ser maior que o publicado (${prev.versionCode}).`);
 }
 
-const fileName = `Soberan-${versionName}.apk`;
+const fileName = `HiperVerso-${versionName}.apk`;
 for (const f of fs.readdirSync(dir)) if (f.endsWith('.apk')) fs.rmSync(path.join(dir, f)); // so a versao atual fica no site
-fs.copyFileSync(apk, path.join(dir, fileName));
-const sha256 = crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, fileName))).digest('hex');
+const destApkPath = path.join(dir, fileName);
+fs.copyFileSync(apk, destApkPath);
+const apkBuffer = fs.readFileSync(destApkPath);
+const sha256 = crypto.createHash('sha256').update(apkBuffer).digest('hex');
 
 const release = {
+  packageName: PACKAGE,
   versionName,
   versionCode,
   minSupportedVersionCode: versionCode,
   apkUrl: `/downloads/${fileName}`,
+  fileSizeBytes: apkBuffer.length,
   sha256,
+  signingCertSha256: CERT_SHA256,
+  releasedAt: new Date().toISOString(),
+  reproducibleBuild: {
+    command: 'npm run apk:lancar',
+    gradleVersion: '8.11.1',
+    verifyCmd: `apksigner verify --print-certs ${fileName}`,
+  },
   releaseNotes: notes.length ? notes : [`Versao ${versionName}.`],
 };
 fs.writeFileSync(jsonPath, `${JSON.stringify(release, null, 2)}\n`);

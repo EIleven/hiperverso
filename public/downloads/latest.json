@@ -1,13 +1,20 @@
 {
-  "versionName": "1.3.0",
-  "versionCode": 5,
-  "minSupportedVersionCode": 5,
-  "apkUrl": "/downloads/Soberan-1.3.0.apk",
-  "sha256": "9ffe467129cab29b2d192d01257b1e5f05b8b71d0f47397f3a18c6a9697c1313",
+  "packageName": "app.hiperverso",
+  "versionName": "1.5.0",
+  "versionCode": 7,
+  "minSupportedVersionCode": 7,
+  "apkUrl": "/downloads/HiperVerso-1.5.0.apk",
+  "fileSizeBytes": 7863769,
+  "sha256": "a9c5aaaa5f56fdbd23327f202a584b8c8895997b879daeeb4ff069e50363288d",
+  "signingCertSha256": "87d26afdfca967382d74c13dc1de13b342a427435576567593efb6fd68119c7a",
+  "releasedAt": "2026-11-18T04:16:20.585Z",
+  "reproducibleBuild": {
+    "command": "npm run apk:lancar",
+    "gradleVersion": "8.11.1",
+    "verifyCmd": "apksigner verify --print-certs HiperVerso-1.5.0.apk"
+  },
   "releaseNotes": [
-    "Notificações push nativas e vibração no Android.",
-    "Rolagem do feed mais fluida e correção do primeiro gesto no topo.",
-    "Prévia única do YouTube, mídia por colar/arrastar e tema preto por padrão.",
-    "Melhorias no chat, navegação, enquetes, localização e resposta imediata das interações."
+    "Identidade HiperVerso (app.hiperverso)",
+    "Melhorias na federação e limpeza visual"
   ]
 }

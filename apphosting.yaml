@@ -82,3 +82,28 @@ env:
     value: 710006061811-compute@developer.gserviceaccount.com
     availability:
       - RUNTIME
+  # Envio transacional proprio (verificacao de conta e redefinicao de senha) via Resend SMTP.
+  - variable: SMTP_HOST
+    value: smtp.resend.com
+    availability:
+      - RUNTIME
+  - variable: SMTP_PORT
+    value: "465"
+    availability:
+      - RUNTIME
+  - variable: SMTP_SECURE
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: SMTP_USER
+    value: resend
+    availability:
+      - RUNTIME
+  - variable: SMTP_PASS
+    secret: RESEND_API_KEY
+    availability:
+      - RUNTIME
+  - variable: SMTP_FROM
+    value: "HiperVerso <HiperVerso@hiperverso.app>"
+    availability:
+      - RUNTIME

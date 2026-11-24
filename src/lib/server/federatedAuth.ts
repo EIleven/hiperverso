@@ -3,11 +3,34 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { enableFederation } from '@/lib/activitypub/account';
+import { pausaDeConsentimento } from '@/lib/activitypub/consentimentoDeDominio';
+import { decideInstance } from '@/lib/activitypub/gate';
 import { remoteUserIdOf } from '@/lib/activitypub/remoteIdentity';
+import { isSuspendedFediverseHost } from '@/lib/federation/suspendedDomains';
 import { federation } from '@/lib/server/federation';
 import { adminAuth, adminFirestore } from '@/lib/server/firebaseAdmin';
 import { mintClientAuthCredential, type ClientAuthCredential } from '@/lib/server/clientCredential';
 import type { FederatedSyncConsent } from '@/lib/server/federatedSync';
+
+export class FederatedSignupClosedError extends Error {
+  constructor() {
+    super('Os cadastros estão fechados no momento.');
+    this.name = 'FederatedSignupClosedError';
+  }
+}
+
+/** Bloqueia login OAuth de instâncias suspensas, rejeitadas pela política ou em pausa ativa por 403. */
+export async function isFediverseDomainBlockedForLogin(domain: string): Promise<boolean> {
+  if (isSuspendedFediverseHost(domain)) return true;
+  const f = federation();
+  const [politica, saude] = await Promise.all([
+    f.store.getInstancePolicy(),
+    f.store.getDomainHealth(domain),
+  ]);
+  if (decideInstance(domain, politica, f.ownHost).decision === 'reject') return true;
+  if (pausaDeConsentimento(saude, Date.now()).pausado) return true;
+  return false;
+}
 
 export interface FederatedProfileInput {
   provider: 'fediverse' | 'bluesky';
@@ -162,6 +185,14 @@ export async function provisionOrLoginFederatedUser(
   }
 
   if (!uid) {
+    const controlSnap = await db.collection('_signup').doc('control').get();
+    const control = controlSnap.data() as { limit?: unknown; used?: unknown } | undefined;
+    const limit = typeof control?.limit === 'number' ? control.limit : -1;
+    const used = typeof control?.used === 'number' ? control.used : 0;
+    if (!controlSnap.exists || limit <= 0 || used >= limit) {
+      throw new FederatedSignupClosedError();
+    }
+
     isNewUser = true;
     const username = await allocateUniqueUsername(input.handle);
     const displayName = (input.name || username).slice(0, 60);

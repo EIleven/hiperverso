@@ -75,3 +75,84 @@ export function pausaDeConsentimento(
   if (!ate || !Number.isFinite(agora) || ate <= agora) return { pausado: false };
   return { pausado: true, ate, recusas: Math.max(0, saude?.consecutiveRefusals ?? 0) };
 }
+
+// ───────────────────────── Reciprocidade: quem nos recusa também não é LIDO ─────────────────────────
+//
+// A pausa nasceu para a ENTREGA: parar de mandar para quem recusa. Mas um servidor que nos recusa continuava sendo lido
+// por nós -- buscávamos o perfil, as conexões, os posts e as respostas dele, e o conteúdo dele entrava aqui por boost de
+// terceiros. "Não mando para você, mas continuo pegando o que é seu" não é respeito; é só a metade conveniente dele.
+//
+// A regra: durante a pausa, nada de leitura nossa naquele domínio. O que ELE nos mandar diretamente continua entrando
+// -- se ele escolheu mandar, a escolha é dele. O que é bloqueado é o que buscamos ou o que chega por terceiros.
+
+export type MotivoSemLeitura = 'plataforma-desligada' | 'suspenso' | 'pausa-de-consentimento';
+
+export type DecisaoDeLeitura = { pode: true } | { pode: false; motivo: MotivoSemLeitura; ate?: number };
+
+/**
+ * Podemos LER deste domínio agora? `suspenso` junta a lista fixa e a política do banco (quem chama resolve as duas).
+ * A suspensão vem antes da pausa porque é definitiva: o motivo devolvido deve ser o mais forte.
+ */
+export function podeLerDe(entrada: {
+  plataformaLigada: boolean;
+  suspenso: boolean;
+  saude: SaudeDoDominio | null | undefined;
+  agora: number;
+}): DecisaoDeLeitura {
+  if (!entrada.plataformaLigada) return { pode: false, motivo: 'plataforma-desligada' };
+  if (entrada.suspenso) return { pode: false, motivo: 'suspenso' };
+  const pausa = pausaDeConsentimento(entrada.saude, entrada.agora);
+  if (pausa.pausado) return { pode: false, motivo: 'pausa-de-consentimento', ate: pausa.ate };
+  return { pode: true };
+}
+
+// ───────────────────────── Domínios mortos: o nome nem resolve ─────────────────────────
+
+/** Códigos de erro de rede que querem dizer "esse nome não existe (mais) no DNS". */
+const CODIGOS_DE_DNS = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ESERVFAIL', 'ENODATA', 'EAI_NONAME']);
+
+/**
+ * A classe de uma falha de INFRAESTRUTURA, para o painel. 'dns' separa o servidor que sumiu do mapa (o domínio
+ * expirou, a instância fechou) do que está só fora do ar por um tempo.
+ */
+export function classeDaFalhaDeInfra(status: number | null | undefined, errorDetail?: string | null): string {
+  if (status === null || status === undefined) {
+    return errorDetail && CODIGOS_DE_DNS.has(errorDetail) ? 'dns' : 'rede';
+  }
+  if (status === 429 || status === 408) return 'limite';
+  if (status >= 500) return 'servidor';
+  return 'outra';
+}
+
+/** Falhas seguidas a partir das quais o domínio aparece como "morto" no painel (ninguém é suspenso por isto sozinho). */
+export const FALHAS_PARA_MORTO = 10;
+
+export type EstadoDoDominio = {
+  /** Recebemos 403 dele (nem que uma vez seguida). */
+  recusando: boolean;
+  /** A pausa está valendo agora. */
+  emPausa: boolean;
+  pausaAte: number | null;
+  /** Falhou de infraestrutura FALHAS_PARA_MORTO vezes seguidas. */
+  morto: boolean;
+  /** Morto E a última falha foi de DNS: o nome não resolve. */
+  semDns: boolean;
+};
+
+/** Como o painel deve mostrar este domínio. Puro: só lê o registro de saúde. */
+export function estadoDoDominio(
+  saude: (SaudeDoDominio & { consecutiveFailures?: number; lastFailureClass?: string }) | null | undefined,
+  agora: number,
+): EstadoDoDominio {
+  const recusas = Number.isFinite(saude?.consecutiveRefusals) ? saude!.consecutiveRefusals! : 0;
+  const pausa = pausaDeConsentimento(saude, agora);
+  const falhas = Number.isFinite(saude?.consecutiveFailures) ? saude!.consecutiveFailures! : 0;
+  const morto = falhas >= FALHAS_PARA_MORTO;
+  return {
+    recusando: recusas > 0,
+    emPausa: pausa.pausado,
+    pausaAte: pausa.pausado ? pausa.ate : null,
+    morto,
+    semDns: morto && saude?.lastFailureClass === 'dns',
+  };
+}

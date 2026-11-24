@@ -17,7 +17,7 @@
  *
  * Sai com código 1 se algo falhar.
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, relative, sep } from 'node:path';
 
@@ -62,55 +62,53 @@ function confere(nome, condicao, motivo, detalhe) {
 
 const decisaoGuardada = (valor) => JSON.stringify(valor);
 
-// [nome, o que está no localStorage, espera decisão válida?, analytics, marketing]
+// [nome, o que está no localStorage, espera decisão válida?, analytics]
+//
+// Publicidade saiu da tabela porque saiu do produto: em 2026-11-19 o código de anúncios foi removido e a categoria
+// `marketing` deixou de existir. Um registro ANTIGO ainda traz esse campo, e o que se prova abaixo é que ele é
+// ignorado em vez de invalidar a decisão -- quem já escolheu sobre MEDIÇÃO não perde a escolha por causa disso.
 const casosGuardados = [
   ['nada guardado', null, false, false, false],
   ['texto vazio', '', false, false, false],
   ['JSON quebrado', '{analytics:true', false, false, false],
   ['não é objeto', '"aceito"', false, false, false],
   ['nulo', 'null', false, false, false],
-  ['sem o campo marketing', decisaoGuardada({ version: CONSENT_NOTICE_VERSION, decidedAt: 'x', analytics: true }), false, false, false],
-  ['analytics como texto', decisaoGuardada({ version: CONSENT_NOTICE_VERSION, decidedAt: 'x', analytics: 'true', marketing: false }), false, false, false],
-  ['sem data', decisaoGuardada({ version: CONSENT_NOTICE_VERSION, decidedAt: '', analytics: true, marketing: true }), false, false, false],
-  ['sem versão', decisaoGuardada({ decidedAt: 'x', analytics: true, marketing: true }), false, false, false],
+  ['analytics como texto', decisaoGuardada({ version: CONSENT_NOTICE_VERSION, decidedAt: 'x', analytics: 'true' }), false, false],
+  ['sem data', decisaoGuardada({ version: CONSENT_NOTICE_VERSION, decidedAt: '', analytics: true }), false, false],
+  ['sem versão', decisaoGuardada({ decidedAt: 'x', analytics: true }), false, false],
   [
     'versão antiga do aviso',
-    decisaoGuardada({ version: CONSENT_NOTICE_VERSION - 1, decidedAt: 'x', analytics: true, marketing: true }),
-    false,
+    decisaoGuardada({ version: CONSENT_NOTICE_VERSION - 1, decidedAt: 'x', analytics: true }),
     false,
     false,
   ],
   [
-    'aceitou tudo (versão atual)',
-    decisaoGuardada({ version: CONSENT_NOTICE_VERSION, decidedAt: '2026-11-11T00:00:00.000Z', analytics: true, marketing: true }),
-    true,
+    'aceitou a medição (versão atual)',
+    decisaoGuardada({ version: CONSENT_NOTICE_VERSION, decidedAt: '2026-11-11T00:00:00.000Z', analytics: true }),
     true,
     true,
   ],
   [
     'recusou tudo (versão atual)',
-    decisaoGuardada({ version: CONSENT_NOTICE_VERSION, decidedAt: '2026-11-11T00:00:00.000Z', analytics: false, marketing: false }),
-    true,
-    false,
-    false,
-  ],
-  [
-    'só medição',
-    decisaoGuardada({ version: CONSENT_NOTICE_VERSION, decidedAt: '2026-11-11T00:00:00.000Z', analytics: true, marketing: false }),
-    true,
+    decisaoGuardada({ version: CONSENT_NOTICE_VERSION, decidedAt: '2026-11-11T00:00:00.000Z', analytics: false }),
     true,
     false,
   ],
   [
-    'só publicidade',
+    'registro ANTIGO, com o campo marketing: o campo é ignorado e a escolha de medição continua valendo',
+    decisaoGuardada({ version: CONSENT_NOTICE_VERSION, decidedAt: '2026-11-11T00:00:00.000Z', analytics: true, marketing: true }),
+    true,
+    true,
+  ],
+  [
+    'registro ANTIGO que recusava tudo: continua recusando',
     decisaoGuardada({ version: CONSENT_NOTICE_VERSION, decidedAt: '2026-11-11T00:00:00.000Z', analytics: false, marketing: true }),
     true,
     false,
-    true,
   ],
 ];
 
-for (const [nome, guardado, valida, esperaAnalytics, esperaMarketing] of casosGuardados) {
+for (const [nome, guardado, valida, esperaAnalytics] of casosGuardados) {
   const decisao = parseStoredConsent(guardado);
   const concedido = grantedChoice(decisao);
   const sinais = consentModeSignals(decisao);
@@ -125,23 +123,23 @@ for (const [nome, guardado, valida, esperaAnalytics, esperaMarketing] of casosGu
   if (concedido.analytics !== esperaAnalytics) {
     problemas.push(`medição veio ${concedido.analytics} (esperado ${esperaAnalytics})`);
   }
-  if (concedido.marketing !== esperaMarketing) {
-    problemas.push(`publicidade veio ${concedido.marketing} (esperado ${esperaMarketing})`);
+  if ('marketing' in concedido) {
+    problemas.push('a categoria de publicidade voltou a existir na escolha concedida');
+  }
+  // Os quatro sinais de publicidade do Consent Mode sao NEGADOS sempre, decida-se o que se decidir. Antes, o botao
+  // "Aceitar tudo" os concedia -- num aviso cujo proprio texto dizia "zero publicidade".
+  for (const sinal of ['ad_storage', 'ad_user_data', 'ad_personalization', 'personalization_storage']) {
+    if (sinais[sinal] !== 'denied') problemas.push(`${sinal} veio ${sinais[sinal]} (tem de ser sempre denied)`);
   }
   if (analyticsAllowed(decisao) !== esperaAnalytics) {
     problemas.push('analyticsAllowed discorda de grantedChoice');
   }
-  if (shouldLoadGtm(decisao) !== (esperaAnalytics || esperaMarketing)) {
+  if (shouldLoadGtm(decisao) !== esperaAnalytics) {
     problemas.push(`shouldLoadGtm veio ${shouldLoadGtm(decisao)}`);
   }
   // O que vai para o Google precisa bater, sinal por sinal.
   if (sinais.analytics_storage !== (esperaAnalytics ? 'granted' : 'denied')) {
     problemas.push(`analytics_storage veio ${sinais.analytics_storage}`);
-  }
-  for (const chave of ['ad_storage', 'ad_user_data', 'ad_personalization', 'personalization_storage']) {
-    if (sinais[chave] !== (esperaMarketing ? 'granted' : 'denied')) {
-      problemas.push(`${chave} veio ${sinais[chave]}`);
-    }
   }
   // Estritamente necessários não dependem de aceite, nunca.
   if (sinais.functionality_storage !== 'granted' || sinais.security_storage !== 'granted') {
@@ -149,7 +147,7 @@ for (const [nome, guardado, valida, esperaAnalytics, esperaMarketing] of casosGu
   }
 
   if (problemas.length) falha(nome, problemas.join('; '));
-  else ok(nome, `medição ${esperaAnalytics ? 'sim' : 'não'}, publicidade ${esperaMarketing ? 'sim' : 'não'}`);
+  else ok(nome, `medição ${esperaAnalytics ? 'sim' : 'não'}, publicidade sempre negada`);
 }
 
 // Sem decisão, o GTM não pode nem ser pedido.
@@ -161,13 +159,13 @@ confere(
 
 // Gravação da decisão: versão atual e data em ISO.
 const agora = new Date('2026-11-11T12:34:56.000Z');
-const gravada = decisionFrom({ analytics: true, marketing: false }, agora);
+const gravada = decisionFrom({ analytics: true }, agora);
 confere(
   'a decisão gravada registra a versão do aviso e a data',
   gravada.version === CONSENT_NOTICE_VERSION &&
     gravada.decidedAt === agora.toISOString() &&
     gravada.analytics === true &&
-    gravada.marketing === false,
+    !('marketing' in gravada),
   `veio ${JSON.stringify(gravada)}`,
   JSON.stringify(gravada),
 );
@@ -177,7 +175,7 @@ confere(
 const gravadaTorta = decisionFrom({ analytics: 1, marketing: 'sim' }, agora);
 confere(
   'valor que não é booleano não concede nada',
-  gravadaTorta.analytics === false && gravadaTorta.marketing === false,
+  gravadaTorta.analytics === false && !('marketing' in gravadaTorta),
   `veio ${JSON.stringify(gravadaTorta)}`,
 );
 
@@ -185,7 +183,7 @@ confere(
 const voltou = parseStoredConsent(JSON.stringify(decisionFrom(ACCEPT_ALL, agora)));
 confere(
   'a decisão sobrevive à ida e volta pelo localStorage',
-  voltou !== null && voltou.analytics === true && voltou.marketing === true,
+  voltou !== null && voltou.analytics === true && !('marketing' in voltou),
   `voltou ${JSON.stringify(voltou)}`,
 );
 
@@ -319,12 +317,6 @@ const guardasDeArquivo = [
     [],
   ],
   [
-    'o AdSense exige consentimento de publicidade',
-    join('components', 'consent', 'AdSenseScript.tsx'),
-    ['marketing', 'useConsent'],
-    [],
-  ],
-  [
     'o Analytics do Firebase não inicia sozinho na importação',
     join('lib', 'firebase.ts'),
     ['getAnalyticsIfConsented', 'analyticsAllowed'],
@@ -341,6 +333,40 @@ for (const [nome, relativo, precisa, proibido] of guardasDeArquivo) {
   if (sobrando.length) problemas.push(`não deveria ter ${sobrando.join(', ')}`);
   if (problemas.length) falha(nome, problemas.join('; '));
   else ok(nome, relativo);
+}
+
+// ── Publicidade: a melhor garantia não é "está atrás do consentimento", é "não existe" ──
+//
+// Até 2026-11-19 havia aqui uma guarda exigindo que o AdSense pedisse aceite. Ela protegia o vazamento, mas não
+// protegia da contradição que existia ao lado: o aviso dizia "zero publicidade" e o botão "Aceitar tudo" mandava
+// `ad_storage: granted` para o Google. O código de anúncios foi removido, e o que se prova agora é a AUSÊNCIA —
+// arquivo que não existe não vaza, e não depende de ninguém lembrar de manter a guarda certa.
+for (const sumido of [
+  join('components', 'consent', 'AdSenseScript.tsx'),
+  join('components', 'feed', 'AdPostCard.tsx'),
+  join('components', 'shared', 'AdClientComponent.tsx'),
+]) {
+  if (existsSync(join(RAIZ, 'src', sumido))) falha('código de anúncio voltou a existir', sumido);
+  else ok('sem código de anúncio', sumido);
+}
+
+// E nenhum arquivo da rede pode voltar a chamar o AdSense.
+{
+  const encontrados = [];
+  const varrer = (dir) => {
+    for (const entrada of readdirSync(dir, { withFileTypes: true })) {
+      const caminho = join(dir, entrada.name);
+      if (entrada.isDirectory()) varrer(caminho);
+      else if (/\.(ts|tsx)$/.test(entrada.name)) {
+        const t = readFileSync(caminho, 'utf8');
+        // O bloqueio de domínios cita `googlesyndication` para BARRÁ-LO; só o uso real é proibido.
+        if (/adsbygoogle|ca-pub-|pagead2\.googlesyndication/.test(t)) encontrados.push(caminho.slice(RAIZ.length));
+      }
+    }
+  };
+  varrer(join(RAIZ, 'src'));
+  if (encontrados.length) falha('alguém voltou a chamar o AdSense', encontrados.join(', '));
+  else ok('nenhum arquivo chama o AdSense', 'src/');
 }
 
 if (falhas) {

@@ -12,6 +12,9 @@
 //   por ator a cada cinco minutos, para ninguém nos fazer buscar em loop mandando assinaturas ruins.
 import { loadPublicKey } from './signature.ts';
 import { decideInstance } from './gate.ts';
+import { classificarLeitura } from './colecoes.ts';
+import { decidirCicloDoAtor } from './cicloDeVida.ts';
+import { lerConsentimentoDoAtor } from './consentimentoDoAtor.ts';
 import { domainOfUrl, parseAcct } from './identity.ts';
 import type { Acct } from './identity.ts';
 import type { FederationStore, RemoteActorRecord } from './store.ts';
@@ -143,6 +146,8 @@ export function parseRemoteActor(json: unknown, esperado: string, now: number): 
       state: 'ok',
       fetchedAtMs: now,
       lastForcedRefreshAtMs: 0,
+      // O que a pessoa disse sobre ser descoberta e ter o texto buscado. Só `true` vale (ver consentimentoDoAtor.ts).
+      ...lerConsentimentoDoAtor(json),
     },
   };
 }
@@ -188,8 +193,19 @@ export async function resolveRemoteActor(
   }
 
   if (resposta.status === 410 || resposta.status === 404) {
-    // O próprio servidor diz que o ator não existe mais. Lembramos disso para não insistir.
-    if (emCache) await deps.store.putRemoteActor({ ...emCache, state: 'gone', fetchedAtMs: agora });
+    // O próprio servidor diz que o ator não existe mais. Lembramos disso para não insistir -- e, com 410 ou com o 404
+    // CONFIRMADO (segundo 404 a 6 h ou mais do primeiro), o que guardamos dele vira túmulo. Antes o ator virava "removido"
+    // e os posts dele continuavam no ar aqui para sempre, mesmo com a conta apagada na origem.
+    const acao = decidirCicloDoAtor(
+      classificarLeitura(resposta.status),
+      emCache?.state === 'gone' ? (emCache.goneSinceMs ?? null) : null,
+      agora,
+    );
+    if (emCache) {
+      const goneSinceMs = acao === 'marcar-removido' ? agora : (emCache.goneSinceMs ?? agora);
+      await deps.store.putRemoteActor({ ...emCache, state: 'gone', fetchedAtMs: agora, goneSinceMs });
+      if (acao === 'apagar-conteudo') await deps.store.removeRemoteActorContent?.(actorId);
+    }
     return falha('removido');
   }
   if (resposta.status < 200 || resposta.status >= 300 || resposta.json === null) {

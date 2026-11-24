@@ -37,15 +37,44 @@ export type PushContent = {
   tag: string;
 };
 
-/** Canal de notificações do Android (criado pelo app; veja AndroidManifest). */
+/**
+ * Canais de notificações do Android
+ * (criados pelo app; veja AndroidManifest e pushNotificationService).
+ */
 export const ANDROID_CHANNEL_ID = "exelula_default";
+export const ANDROID_CHANNELS = {
+  default: ANDROID_CHANNEL_ID,
+  messages: "exelula_messages",
+  mentions: "exelula_mentions",
+  security: "exelula_security",
+} as const;
 
 const PREVIEW_MAX = 90;
 const URGENT_TYPES = new Set([
   "new_message",
   "mention_in_post",
   "mention_in_comment",
+  "reply_to_comment",
+  "alt_text_request",
+  "login_request",
+  "security_alert",
 ]);
+
+const channelForType = (type: string): string => {
+  if (type === "new_message") return ANDROID_CHANNELS.messages;
+  if (type === "login_request" || type === "security_alert") {
+    return ANDROID_CHANNELS.security;
+  }
+  if (
+    type === "mention_in_post" ||
+    type === "mention_in_comment" ||
+    type === "reply_to_comment" ||
+    type === "alt_text_request"
+  ) {
+    return ANDROID_CHANNELS.mentions;
+  }
+  return ANDROID_CHANNEL_ID;
+};
 
 /**
  * "Nova conversa" não vira push: a conversa nasce quando alguém ABRE o chat
@@ -152,6 +181,8 @@ const PT: Strings = {
     mention_in_post: "Você foi mencionado(a)",
     mention_in_comment: "Você foi mencionado(a)",
     new_post_from_user: "Nova publicação",
+    alt_text_request: "Pedido de Alt Text · Acessibilidade",
+    login_request: "Pedido de acesso · Segurança",
     welcome: "Exe. Lula",
   },
   verbs: {
@@ -172,6 +203,8 @@ const PT: Strings = {
     mention_in_post: () => "mencionou você numa publicação.",
     mention_in_comment: () => "mencionou você num comentário.",
     new_post_from_user: () => "publicou.",
+    alt_text_request: () => "pediu descrição (Alt Text) em uma imagem sua.",
+    login_request: () => "solicitou aprovação para entrar.",
     welcome: () => "Bem-vindo(a) ao Exe. Lula!",
   },
   generic: {
@@ -197,6 +230,8 @@ const EN: Strings = {
     mention_in_post: "You were mentioned",
     mention_in_comment: "You were mentioned",
     new_post_from_user: "New post",
+    alt_text_request: "Alt Text request · Accessibility",
+    login_request: "Sign-in request · Security",
     welcome: "Exe. Lula",
   },
   verbs: {
@@ -210,6 +245,8 @@ const EN: Strings = {
     mention_in_post: () => "mentioned you in a post.",
     mention_in_comment: () => "mentioned you in a comment.",
     new_post_from_user: () => "posted.",
+    alt_text_request: () => "requested Alt Text on an image in your post.",
+    login_request: () => "requested sign-in approval.",
     welcome: () => "Welcome to Exe. Lula!",
   },
   generic: {
@@ -256,11 +293,18 @@ const pathFor = (n: PushNotification, locale: PushLocale): string => {
     const postId = n.newPostId ?? n.entityId;
     return postId ? `${base}/post/${postId}` : `${base}/notifications`;
   }
+  case "alt_text_request":
+    return n.entityId ?
+      `${base}/post/${n.entityId}?addAlt=1` :
+      `${base}/notifications`;
   case "new_message":
     if (n.entityType === "group" && n.entityId) {
       return `${base}/messages/group/${n.entityId}`;
     }
     return actorId ? `${base}/messages/user/${actorId}` : `${base}/messages`;
+  case "login_request":
+  case "security_alert":
+    return `${base}/keys`;
   default:
     return `${base}/notifications`;
   }
@@ -331,6 +375,11 @@ export const buildMulticast = (
   meta: { type: string; notificationId: string }
 ): MulticastMessage => {
   const link = `${siteUrl}${content.path}`;
+  const isUrgent = URGENT_TYPES.has(meta.type);
+  const isPrivate =
+    meta.type === "new_message" ||
+    meta.type === "login_request" ||
+    meta.type === "security_alert";
   return {
     tokens,
     notification: {title: content.title, body: content.body},
@@ -345,19 +394,22 @@ export const buildMulticast = (
       priority: "high",
       collapseKey: content.tag.slice(0, 64),
       notification: {
-        channelId: ANDROID_CHANNEL_ID,
+        channelId: channelForType(meta.type),
         tag: content.tag,
         sound: "default",
-        defaultVibrateTimings: true,
+        defaultVibrateTimings: isUrgent,
+        visibility: isPrivate ? "private" : "public",
+        priority: isUrgent ? "high" : "default",
+        ticker: `${content.title}: ${content.body}`,
         icon: "ic_stat_notify",
         color: "#D61F26",
       },
     },
     webpush: {
-      // Mensagem e menção pedem entrega imediata; curtida e afins podem
+      // Mensagem, menção e segurança pedem entrega imediata; curtidas podem
       // esperar o aparelho acordar sem prejuízo.
       headers: {
-        Urgency: URGENT_TYPES.has(meta.type) ? "high" : "normal",
+        Urgency: isUrgent ? "high" : "normal",
         TTL: "86400",
       },
       notification: {

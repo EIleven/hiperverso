@@ -1,0 +1,41 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.hiperverso",
+      "sha256_cert_fingerprints": [
+        "87:D2:6A:FD:FC:A9:67:38:2D:74:C1:3D:C1:DE:13:B3:42:A4:27:43:55:76:56:75:93:EF:B6:FD:68:11:9C:7A"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.hiperverso.chat",
+      "sha256_cert_fingerprints": [
+        "87:D2:6A:FD:FC:A9:67:38:2D:74:C1:3D:C1:DE:13:B3:42:A4:27:43:55:76:56:75:93:EF:B6:FD:68:11:9C:7A"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.soberan.app",
+      "sha256_cert_fingerprints": [
+        "87:D2:6A:FD:FC:A9:67:38:2D:74:C1:3D:C1:DE:13:B3:42:A4:27:43:55:76:56:75:93:EF:B6:FD:68:11:9C:7A"
+      ]
+    }
+  }
+]

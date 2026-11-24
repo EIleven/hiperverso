@@ -426,6 +426,10 @@ export async function GET(request: NextRequest) {
   let yesterdayTotal = 0;
   let periodAuth = 0;
   let periodGuests = 0;
+  let uniqueSiteGuests = 0;
+  let uniqueSiteAuth = 0;
+  let uniqueSearchGuests = 0;
+  let uniqueSearchAuth = 0;
   const sectionMap = new Map<string, { section: string; authViews: number; guestViews: number; totalViews: number }>();
   const pageMap = new Map<string, { path: string; section: string; authViews: number; guestViews: number; totalViews: number }>();
 
@@ -446,9 +450,22 @@ export async function GET(request: NextRequest) {
     for (const doc of accessAggSnap.docs) {
       const ad = doc.data();
       const dateStr = typeof ad.date === 'string' ? ad.date : '';
-      const count = typeof ad.count === 'number' ? ad.count : 0;
+      const rawPath = typeof ad.path === 'string' ? ad.path : '/';
       const audience = ad.audienceType === 'auth' ? 'auth' : 'guest';
-      const { cleanPath, section } = classifyRouteSection(typeof ad.path === 'string' ? ad.path : '/');
+
+      if (rawPath === '__site_unique__' && typeof ad.uniqueCount === 'number') {
+        if (audience === 'auth') uniqueSiteAuth += ad.uniqueCount;
+        else uniqueSiteGuests += ad.uniqueCount;
+        continue;
+      }
+      if (rawPath === '__search_unique__' && typeof ad.uniqueCount === 'number') {
+        if (audience === 'auth') uniqueSearchAuth += ad.uniqueCount;
+        else uniqueSearchGuests += ad.uniqueCount;
+        continue;
+      }
+
+      const count = typeof ad.count === 'number' ? ad.count : 0;
+      const { cleanPath, section } = classifyRouteSection(rawPath);
 
       if (audience === 'auth') periodAuth += count;
       else periodGuests += count;
@@ -563,6 +580,12 @@ export async function GET(request: NextRequest) {
     accessRealtime: {
       todayTotal: todayAuth + todayGuests,
       todayAuth,
+      uniqueSummary: {
+        siteGuests: uniqueSiteGuests,
+        siteAuth: uniqueSiteAuth,
+        searchGuests: uniqueSearchGuests,
+        searchAuth: uniqueSearchAuth,
+      },
       todayGuests,
       yesterdayTotal,
       periodTotal,

@@ -17,7 +17,7 @@ import type { AccountDeps } from './account.ts';
 import { buildAnnounce, buildCreate, buildDelete, buildDeleteActor, buildLike, buildMove, buildUndo, buildUpdate } from './activity.ts';
 import { classifyDelivery, deliveryId, domainCooldownSeconds, failureClassOf, groupTargets, nextStep } from './delivery.ts';
 import type { FailureClass } from './delivery.ts';
-import { aposEntregaAceita, aposRecusa, ehRecusaDeConsentimento, pausaDeConsentimento } from './consentimentoDeDominio.ts';
+import { aposEntregaAceita, aposRecusa, classeDaFalhaDeInfra, ehRecusaDeConsentimento, pausaDeConsentimento } from './consentimentoDeDominio.ts';
 import { addressingFor, decideInstance, evaluateGate } from './gate.ts';
 import type { FederationScope } from './gate.ts';
 import type { GateOp, PostForGate } from './gate.ts';
@@ -826,6 +826,9 @@ async function entregarUma(deps: WorkerDeps, entrega: DeliveryRecord, chaves: Ma
       lastFailureMs: agora,
       consecutiveRefusals: saude?.consecutiveRefusals ?? 0,
       refusedUntilMs: saude?.refusedUntilMs ?? 0,
+      // DNS que não resolve separa a instância que SUMIU (domínio expirou, servidor fechou) da que está fora do ar por um
+      // tempo. É o que o painel usa para listar domínios mortos; ninguém é suspenso por isto sem decisão humana.
+      lastFailureClass: classeDaFalhaDeInfra(resposta.status, resposta.errorDetail),
     });
   } else if (ehRecusaDeConsentimento(resposta.status)) {
     // 403: o servidor nos conhece e recusou. Conta como recusa de consentimento, nao como queda.
@@ -834,6 +837,7 @@ async function entregarUma(deps: WorkerDeps, entrega: DeliveryRecord, chaves: Ma
       consecutiveFailures: saude?.consecutiveFailures ?? 0,
       cooldownUntilMs: saude?.cooldownUntilMs ?? 0,
       lastFailureMs: agora,
+      ...(saude?.lastFailureClass ? { lastFailureClass: saude.lastFailureClass } : {}),
       ...aposRecusa(saude, agora),
     });
   }

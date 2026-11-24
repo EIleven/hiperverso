@@ -23,7 +23,6 @@ import {
   remoteUserIdOf,
 } from '@/lib/activitypub/remoteIdentity';
 import type { Post, User } from '@/lib/types';
-import { safeFetchText } from '@/lib/security/safe-fetch';
 import { adminFirestore } from '@/lib/server/firebaseAdmin';
 import { federation } from '@/lib/server/federation';
 import { applyRemoteCounts } from '@/lib/server/remoteCounts';
@@ -133,9 +132,12 @@ export async function materializeRemoteProfile(
       avatarUrl: profile.iconUrl || '',
       coverImageUrl: profile.headerUrl || '',
       website: profile.url,
-      followersCount: profile.followersCount ?? 0,
-      followingCount: profile.followingCount ?? 0,
-      postsCount: profile.postsCount ?? (profile.posts?.length ?? 0),
+      // Só grava contagem que a origem INFORMOU. O ator ActivityPub não publica número de seguidores; com a REST fora,
+      // `?? 0` aqui zeraria o que já sabíamos a cada abertura de perfil. Ausente não é zero.
+      ...(typeof profile.followersCount === 'number' ? { followersCount: profile.followersCount } : {}),
+      ...(typeof profile.followingCount === 'number' ? { followingCount: profile.followingCount } : {}),
+      ...(typeof profile.postsCount === 'number' ? { postsCount: profile.postsCount } : {}),
+      ...(existingUserSnap.exists ? {} : { followersCount: profile.followersCount ?? 0, followingCount: profile.followingCount ?? 0, postsCount: profile.postsCount ?? (profile.posts?.length ?? 0) }),
       dmPreference: 'everyone' as const,
       profileVisibility: 'public' as const,
       isRemoteFediverse: true,
@@ -145,6 +147,9 @@ export async function materializeRemoteProfile(
       remoteInbox: targetInbox,
       // Verdade do ator no momento da leitura: é o que decide, nas listas e nos balões, entre "Seguir" e "Pedir para seguir".
       remoteManuallyApprovesFollowers: profile.manuallyApprovesFollowers === true,
+      // O que a pessoa disse sobre ser descoberta e ter o texto buscado (só `true` é sim). Decide busca e explorar.
+      ...(typeof profile.discoverable === 'boolean' ? { remoteDiscoverable: profile.discoverable } : {}),
+      ...(typeof profile.indexable === 'boolean' ? { remoteIndexable: profile.indexable } : {}),
       updatedAt: FieldValue.serverTimestamp(),
       ...(existingUserSnap.exists ? {} : { createdAt: FieldValue.serverTimestamp() }),
     },
@@ -298,7 +303,6 @@ export async function materializeRemoteProfile(
     conferencias.set(objectUri, fetchVerifiedNote(objectUri, item.repostedAuthorActorId).catch(() => null));
   }
 
-  let consultasDePaiPorId = 0;
   for (const item of lote) {
     const objectUri = canonicalObjectId({ uri: item.uri, url: item.url }) ?? `${profile.actorId}#${item.id}`;
     // Objeto do NOSSO domínio (resposta ou repost de algo daqui, visto pelo servidor remoto): nunca vira ap_. O inbox trata.
@@ -319,47 +323,9 @@ export async function materializeRemoteProfile(
           parentPostId = pai.id;
           parentAuthorId = String(pai.dados.userId || uid);
         }
-      } else if (consultasDePaiPorId < 5) {
-        consultasDePaiPorId++;
-        const stRes = await safeFetchText(
-          `https://${profile.domain}/api/v1/statuses/${encodeURIComponent(item.inReplyToId)}`,
-          {
-            timeoutMs: 4000,
-            maxBytes: 128_000,
-            headers: { Accept: 'application/json', 'User-Agent': `HiperVerso/1.0 (+${f.origin})` },
-            allowedContentTypes: /^application\/json/i,
-          },
-        ).catch(() => null);
-        if (stRes?.ok) {
-          try {
-            const p = JSON.parse(stRes.text) as {
-              url?: string;
-              uri?: string;
-              replies_count?: number;
-              reblogs_count?: number;
-              favourites_count?: number;
-              account?: { uri?: string; url?: string };
-            };
-            const paiUri = canonicalObjectId({ uri: p.uri, url: p.url });
-            const paiActor = typeof p.account?.uri === 'string' ? p.account.uri : null;
-            // Pai do NOSSO domínio (um post ou uma conta daqui): nunca ganha uma cópia ap_. É o caso do fantasma do @Breno.
-            if (!paiUri || !paiActor || isOwnHostUrl(paiUri, f.ownHost) || isOwnHostUrl(p.url, f.ownHost) || isOwnHostUrl(paiActor, f.ownHost)) continue;
-            const pai = await garantirPostDeTerceiro(
-              paiUri,
-              p.url || paiUri,
-              paiActor,
-              { curtidas: Number(p.favourites_count) || 0, reposts: Number(p.reblogs_count) || 0, respostas: Number(p.replies_count) || 1 },
-              idsDoPost(paiUri, p.url || paiUri),
-            );
-            if (pai) {
-              parentPostId = pai.id;
-              parentAuthorId = pai.autor.userId;
-            }
-          } catch {
-            // ignora falha ao resolver o post-pai
-          }
-        }
       }
+      // Pai identificado só por id NUMÉRICO (formato da REST do Mastodon) não é mais buscado: aqui havia um
+      // `/api/v1/statuses/{id}` sem autenticação. O outbox ActivityPub sempre traz `inReplyTo` como URI.
 
       if (parentPostId) {
         const comentarioId = remotePostIdOf(objectUri);

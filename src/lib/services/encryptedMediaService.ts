@@ -53,7 +53,7 @@ interface InitResposta {
   error?: unknown;
 }
 
-async function pedirRegistro(corpo: Record<string, unknown>): Promise<{ storagePath: string; downloadURL: string }> {
+async function pedirRegistro(corpo: Record<string, unknown>): Promise<{ mediaId: string; storagePath: string; downloadURL: string }> {
   const user = auth.currentUser;
   if (!user) throw new ErroDeMidiaProtegida('A sessão da conta mudou. Entre novamente para enviar o arquivo.');
   const idToken = await user.getIdToken();
@@ -76,10 +76,36 @@ async function pedirRegistro(corpo: Record<string, unknown>): Promise<{ storageP
   if (body.error === 'invalid-file-size') {
     throw new ErroDeMidiaProtegida('Este arquivo passa do limite de 200 MB para conversa protegida.');
   }
-  if (resposta.status !== 201 || typeof body.storagePath !== 'string' || typeof body.downloadURL !== 'string') {
+  if (
+    resposta.status !== 201 ||
+    typeof body.mediaId !== 'string' ||
+    typeof body.storagePath !== 'string' ||
+    typeof body.downloadURL !== 'string'
+  ) {
     throw new ErroDeMidiaProtegida('Não foi possível preparar o envio. Tente novamente.');
   }
-  return { storagePath: body.storagePath, downloadURL: body.downloadURL };
+  return { mediaId: body.mediaId, storagePath: body.storagePath, downloadURL: body.downloadURL };
+}
+
+/**
+ * Fecha o envio: o SERVIDOR apaga o token permanente que o SDK do Firebase grava no objeto durante o upload.
+ *
+ * Esse token é uma URL pública que não passa pela autorização do `/mp` e não se revoga tirando acesso — é o mesmo
+ * defeito que a rodada de mídia já tinha corrigido em outros 19 objetos. O envio cifrado precisa do protocolo
+ * retomável (são até 200 MB), então em vez de trocar o protocolo, apaga-se o token logo depois.
+ *
+ * Falhar aqui NÃO é detalhe: sem o fechamento o arquivo fica alcançável por quem tiver a URL. Por isso o erro sobe.
+ */
+async function fecharEnvio(mediaId: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new ErroDeMidiaProtegida('A sessão da conta mudou. Entre novamente.');
+  const idToken = await user.getIdToken();
+  const r = await fetch('/api/media/enc/init', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ finalizar: mediaId }),
+  });
+  if (!r.ok) throw new ErroDeMidiaProtegida('O envio não pôde ser concluído com segurança. Tente de novo.');
 }
 
 function subir(caminho: string, dados: Blob, aoProgredir?: (fracao: number) => void): Promise<void> {
@@ -213,6 +239,7 @@ export async function enviarMidiaProtegida(params: {
   await subir(registro.storagePath, blob, (f) =>
     aoProgredir?.(FATIA_DA_CIFRAGEM + f * (100 - FATIA_DA_CIFRAGEM)),
   );
+  await fecharEnvio(registro.mediaId);
 
   // 3. Capa: mesma chave, índice reservado. Falhar aqui não derruba o envio — fica sem capa.
   let posterUrl: string | undefined;
@@ -228,6 +255,7 @@ export async function enviarMidiaProtegida(params: {
         });
         const regCapa = await pedirRegistro({ size: capaCifrada.byteLength, papel: 'poster' });
         await subir(regCapa.storagePath, new Blob([capaCifrada]));
+        await fecharEnvio(regCapa.mediaId);
         posterUrl = regCapa.downloadURL;
       }
     } catch {

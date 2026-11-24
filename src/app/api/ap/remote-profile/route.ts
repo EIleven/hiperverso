@@ -11,6 +11,7 @@ import { adminFirestore } from '@/lib/server/firebaseAdmin';
 import { localUserIdOfHandle } from '@/lib/server/localIdentity';
 import { materializeRemoteProfile } from '@/lib/server/remoteMaterialize';
 import { resolveRemoteProfile } from '@/lib/server/remoteProfile';
+import { podeCarregarOutbox } from '@/lib/activitypub/consentimentoDoAtor';
 import { requestIp, takeRateLimit } from '@/lib/server/requestAuth';
 import { evaluateRequestSecurity } from '@/lib/security/antiBotGuard';
 
@@ -38,7 +39,17 @@ export async function GET(request: NextRequest) {
 
   const handle = request.nextUrl.searchParams.get('handle') ?? '';
   const withPosts = request.nextUrl.searchParams.get('withPosts') !== '0';
-  const res = await resolveRemoteProfile(handle, { withPosts });
+  // O outbox (os posts) só é buscado se alguém daqui JÁ SEGUE esta pessoa. Abrir um perfil não autoriza baixar o histórico
+  // de quem nunca pediu para estar aqui; o espelho users/{remoto}/followers é quem guarda os seguidores daqui.
+  const res = await resolveRemoteProfile(handle, {
+    withPosts,
+    podeCarregarPosts: async (actorId) => {
+      const seguidores = await adminFirestore()
+        .collection('users').doc(remoteUserIdOf(actorId)).collection('followers')
+        .limit(1).get();
+      return podeCarregarOutbox({ algumLocalSegue: !seguidores.empty });
+    },
+  });
   if (!res.ok) {
     if (res.error === 'perfil-local') {
       // Alguém do NOSSO domínio: quem chamou abre o perfil local, em vez de ganhar um "fantasma" ap_.

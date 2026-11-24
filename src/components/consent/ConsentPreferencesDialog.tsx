@@ -73,7 +73,7 @@ export default function ConsentPreferencesDialog() {
 
           <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
             <div className="flex items-center justify-between gap-4">
-              <Label className="text-base">{t('categories.marketing.title')}</Label>
+              <Label className="text-base">{t('zeroAds.title')}</Label>
               <Link
                 href={`/${locale}/profile/qdnRsBvLG8NdwrLv9GwiHDa1xi42?pix=1`}
                 onClick={closePreferences}
@@ -82,7 +82,9 @@ export default function ConsentPreferencesDialog() {
                 {t('supportPix')}
               </Link>
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">{t('categories.marketing.description')}</p>
+            {/* Nao e uma categoria de consentimento: e a afirmacao de que publicidade nao existe aqui. Nao ha o
+                que aceitar nem recusar, por isso nao ha botao. */}
+            <p className="mt-1 text-sm text-muted-foreground">{t('zeroAds.description')}</p>
           </div>
         </div>
 
@@ -90,13 +92,13 @@ export default function ConsentPreferencesDialog() {
           <Button
             variant="outline"
             className="flex-1"
-            onClick={() => decide({ analytics: false, marketing: false })}
+            onClick={() => decide({ analytics: false })}
           >
             {t('rejectAll')}
           </Button>
           <Button
             className="flex-1"
-            onClick={() => decide({ analytics: wantsAnalytics, marketing: false })}
+            onClick={() => decide({ analytics: wantsAnalytics })}
           >
             {t('preferences.save')}
           </Button>

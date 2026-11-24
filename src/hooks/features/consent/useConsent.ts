@@ -14,7 +14,6 @@ export interface ConsentContextValue {
   /** Medição de uso concedida. */
   analytics: boolean;
   /** Publicidade concedida. */
-  marketing: boolean;
   /**
    * O localStorage já foi lido. Antes disso nada é decidido nem exibido: no servidor e no primeiro render o estado é
    * sempre "sem decisão", então o banner não pisca e nenhuma tag entra por engano.

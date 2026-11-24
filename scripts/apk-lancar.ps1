@@ -10,9 +10,13 @@
 #
 # Uso:  npm run apk:lancar -- -PublicarSite "nota 1" "nota 2"
 #       npm run apk:lancar -- -SemPublicar      (so gera e assina, para instalar e testar antes de publicar)
+#       npm run apk:lancar -- -App hiperchat -SemPublicar   (gera e assina o HiperChat, para o Beta)
 #       npm run apk:lancar -- -ApkPronto android\app\release\app-release.apk -PublicarSite "nota"
 #                                               (APK ja assinado no Android Studio: pula os passos 1 e 2)
 param(
+  # Qual dos dois apps lançar. `principal` = HiperVerso (app.hiperverso); `hiperchat` = HiperChat
+  # (app.hiperverso.chat), a casca que abre direto nas conversas. O padrao continua sendo o principal.
+  [ValidateSet('principal', 'hiperchat')][string]$App = 'principal',
   [switch]$PublicarSite,
   [switch]$SemPublicar,
   [string]$ApkPronto,
@@ -44,17 +48,20 @@ try {
     $env:JAVA_HOME = Find-Jdk
     $buildTools = Find-BuildTools $root
     $gradle = Find-Gradle
-    $saida = Join-Path $root 'android\app\build\outputs\apk\release'
-    $semAssinatura = Join-Path $saida 'app-release-unsigned.apk'
-    $alinhado = Join-Path $saida 'app-release-alinhado.apk'
-    $assinado = Join-Path $saida 'app-release.apk'
+    # Com dois sabores, cada um tem a sua pasta e a sua tarefa: outputs/apk/<sabor>/release e assemble<Sabor>Release.
+    $sabor = $App
+    $Sabor = $sabor.Substring(0,1).ToUpper() + $sabor.Substring(1)
+    $saida = Join-Path $root "android\app\build\outputs\apk\$sabor\release"
+    $semAssinatura = Join-Path $saida "app-$sabor-release-unsigned.apk"
+    $alinhado = Join-Path $saida "app-$sabor-release-alinhado.apk"
+    $assinado = Join-Path $saida "app-$sabor-release.apk"
 
     Passo 'Configuracao do Capacitor'
     Executar 'npx' @('cap', 'copy', 'android') 'npx cap copy android falhou'
 
-    Passo 'Compilando o APK de release (Gradle 8.11.1)'
+    Passo "Compilando o APK de release do app $sabor (Gradle 8.11.1)"
     Remove-Item $semAssinatura, $alinhado, $assinado -ErrorAction SilentlyContinue
-    Executar $gradle @('-p', 'android', 'assembleRelease', '--console=plain', '-q') 'A compilacao falhou'
+    Executar $gradle @('-p', 'android', "assemble${Sabor}Release", '--console=plain', '-q') 'A compilacao falhou'
     if (-not (Test-Path $semAssinatura)) { throw "APK nao gerado: $semAssinatura" }
 
     Passo 'Alinhando e assinando'
@@ -77,6 +84,11 @@ try {
     if ($verificacao.Codigo -ne 0) { $verificacao.Saida | Write-Host; throw 'A assinatura do APK nao confere' }
     Write-Host "APK assinado: $assinado"
     if ($SemPublicar) { return }
+    if ($sabor -ne 'principal') {
+      # A pagina /download publica o app principal. O HV Mensagens e distribuido no Beta pelo link proprio.
+      Write-Host "App $sabor (HiperChat) assinado. A pagina /download publica o principal: distribua este APK pelo canal do Beta."
+      return
+    }
   }
 
   Passo 'Publicando na pagina /download'

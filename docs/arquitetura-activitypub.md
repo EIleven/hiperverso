@@ -9,7 +9,8 @@
 > edição e exclusão, moderar (seguidores, bloqueios, regras por servidor) e sair.
 > **O que esta versão NÃO faz:** seguir contas de outros servidores, mostrar uma linha do tempo do Fediverso, receber
 > respostas, curtidas ou compartilhamentos de fora, federar enquetes, citações e notícias, e oferecer na interface a
-> migração (`Move`/`alsoKnownAs`). Os campos de migração existem no modelo e no actor; as ações ainda não.
+> migração (`Move`). O construtor do `Move` existe; a ação ainda não. **`alsoKnownAs` foi retirado do actor público**
+> (ver §10): ele entregava, a quem lesse o ator sem autenticação, o mapa das outras identidades da mesma pessoa.
 
 ## 1. O que a federação muda, em uma frase
 
@@ -236,8 +237,14 @@ rastro (quem, quando, o quê) em `ap_audit`.
   continua reservado. Religar depois reaparece como **conta nova**: quem seguia precisa seguir de novo.
 - **Garantia honesta:** o `Delete` e o `Update` são enviados em melhor esforço. **Servidores remotos podem não obedecer**
   e cópias já guardadas podem continuar existindo. A interface e a Política de Privacidade dizem isso.
-- **Migrar para outro servidor (`Move`/`alsoKnownAs`):** o modelo e o actor já têm os campos e o construtor da
-  atividade existe, mas a **ação na interface ainda não existe**. Não prometemos migração até existir.
+- **Migrar para outro servidor (`Move`):** o construtor da atividade existe, mas a **ação na interface ainda não
+  existe**. Não prometemos migração até existir.
+- **`alsoKnownAs` NÃO é publicado (decisão de 2026-11-17, após apontamento de outra instância).** Declarar no actor as
+  outras contas da mesma pessoa deixava um mapa de identidades cruzadas aberto a qualquer leitor, e cada URI ali custava
+  mais uma resolução de ator para toda instância que lesse o documento. O campo saiu do `@context`, do construtor e da
+  API; não há mais como gravá-lo (`set-aliases` responde `410 alias-desativado`). O que já estava gravado continua
+  legível no banco, mas **nunca sai no actor**. Quem migrar para cá declara o vínculo no servidor de ORIGEM, que é o
+  lado consultado pela migração.
 - **Exportar:** a exportação de dados da conta **ainda não inclui** os dados da federação. Pendente.
 
 ## 11. Auditoria sem exposição
@@ -315,6 +322,7 @@ Mantém a separação de confiança: o banco sozinho não expõe chave de assina
 | Textos legais (Política de Privacidade, Termos, Cookies, retenção, matriz de tratamentos) | **Pendente**: só devem mudar quando a plataforma for ligada, descrevendo o que está implementado |
 | Teste de interoperabilidade com um servidor real (Mastodon/Pleroma) | **Pendente**: exige uma conta de terceiros |
 | Busca **assinada** (GET) do actor remoto | **No ar** (2026-11-14): ator da instância em `/ap/actor` + WebFinger próprio, assina só depois de um 401/403 (`e2e:ap-instancia`, 33). Falta conferir de ponta a ponta com um servidor real em modo de busca autorizada (os primeiros pedidos de confirmação já chegam nos logs) |
-| `Move`/`alsoKnownAs` na interface; exportação com dados da federação | **Pendente** (modelo e construtor existem) |
+| `Move` na interface; exportação com dados da federação | **Pendente** (construtor existe) |
+| `alsoKnownAs` no actor público | **Removido** (2026-11-17): identidades cruzadas abertas a raspagem e amplificação de resolução entre instâncias. Leitura do legado preservada no banco |
 | Seguir contas remotas, linha do tempo do Fediverso, respostas e curtidas de fora | **Fora desta versão** |
 | Parecer jurídico sobre transferência internacional por federação | **Pendente** (a cópia vai para servidor em país que não escolhemos) |

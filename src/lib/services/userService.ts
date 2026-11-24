@@ -1,6 +1,7 @@
 
 // src/lib/services/userService.ts
 import { db, runTransaction, functions, auth } from '../firebase';
+import { remotoPodeAparecerNaDescoberta } from '@/lib/activitypub/consentimentoDoAtor';
 import type { User, Notification, Post, Comment, CustomFeed, TabPreferences } from '../types';
 import {
   doc,
@@ -1217,6 +1218,16 @@ const loadSuggestedUsers = async (
   }
 };
 
+/**
+ * Sugestão é DESCOBERTA: perfil de outro servidor só entra se a pessoa marcou `discoverable` no próprio ator (gravado em
+ * `remoteDiscoverable`). Ausente não é sim. Perfil local segue as próprias preferências daqui, não esta regra.
+ */
+const sugestaoPermitida = (u: User): boolean =>
+  remotoPodeAparecerNaDescoberta({
+    remoto: u.id.startsWith('ap_') || (u as User & { isRemoteFediverse?: boolean }).isRemoteFediverse === true || Boolean(u.username?.includes('@')),
+    descobrivel: u.remoteDiscoverable === true,
+  });
+
 export const getSuggestedUsers = async (
   activeUserId: string | null,
   limitCount: number = 10,
@@ -1233,7 +1244,7 @@ export const getSuggestedUsers = async (
   const cacheKey = `${activeUserId}:${prefs.networkScope}:${prefs.mode}:${Number(prefs.useFollowingSignals)}:${Number(prefs.useInterestSignals)}:${Number(prefs.useActivitySignals)}`;
   const hit = recommendationCache.get(cacheKey);
   if (hit && hit.count >= collectedCount && Date.now() - hit.at < RECOMMENDATION_CACHE_TTL_MS) {
-    return (await hit.value).slice(0, requested).map((user) => deepCopyUser(user)!);
+    return (await hit.value).filter(sugestaoPermitida).slice(0, requested).map((user) => deepCopyUser(user)!);
   }
 
   const value = loadSuggestedUsers(activeUserId, collectedCount, prefs);
@@ -1243,7 +1254,7 @@ export const getSuggestedUsers = async (
       recommendationCache.delete(cacheKey);
     }
   });
-  return (await value).slice(0, requested).map((user) => deepCopyUser(user)!);
+  return (await value).filter(sugestaoPermitida).slice(0, requested).map((user) => deepCopyUser(user)!);
 };
 
 export const getRelatedProfiles = async (
@@ -1258,7 +1269,7 @@ export const getRelatedProfiles = async (
 
   try {
     const pool = await getSuggestedUsers(activeUserId, 24, prefs);
-    return rankRelatedProfiles(targetUser, pool, prefs, limitCount);
+    return rankRelatedProfiles(targetUser, pool.filter(sugestaoPermitida), prefs, limitCount);
   } catch (error) {
     console.error('Error fetching related profiles:', error);
     return [];

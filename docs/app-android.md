@@ -118,3 +118,150 @@ AVD `Medium_Phone_API_35` (Android 15, Google Play). Feche os emuladores do Fire
 ~2 GB de memória "commit" livre. Para o teste local assine com a chave de depuração (`~/.android/debug.keystore`, senha
 `android`), `adb install -r`, `adb shell am start -n com.soberan.app/.MainActivity`, `adb shell screencap -p` + `adb pull`
 (não redirecione binário pelo PowerShell). O login com Google **não** completa no emulador com chave de depuração.
+
+## Dois apps do mesmo projeto: HiperVerso e HV Mensagens
+
+Desde 2026-11-17 o `android/` produz **dois aplicativos**, por *product flavors* do Gradle:
+
+| Sabor | `applicationId` | Nome no aparelho | Abre em |
+|---|---|---|---|
+| `principal` | `com.soberan.app` | HiperVerso | a rede inteira |
+| `mensagens` | `com.soberan.app.mensagens` | HV Mensagens | `/pt-BR/messages` |
+
+São dois ícones e duas entradas no launcher, instaláveis lado a lado, **com o mesmo backend, as mesmas contas, as mesmas
+conversas em tempo real e todos os métodos de login e registro da plataforma** — a casca é outra, o site é o mesmo.
+
+**O `applicationId` do principal não muda.** Trocá-lo criaria outro app na Play Store e quem já tem o nosso instalado nunca
+receberia a atualização. Por isso `principal` herda `com.soberan.app` do `defaultConfig` e só o `mensagens` declara o seu.
+
+O que pertence a cada sabor vive em `android/app/src/<sabor>/`: `res/values/strings.xml` (nome e `custom_url_scheme`),
+`res/mipmap-*` (ícone) e, no caso do `mensagens`, `assets/capacitor.config.json` (é ele que faz o app abrir direto nas
+conversas). O `npx cap copy` só escreve em `src/main/assets/`, então a configuração do sabor sobrevive a cada sincronização.
+
+### Pré-requisito: registrar o segundo app no Firebase
+
+O `mensagens` **não compila** enquanto o pacote novo não existir no projeto Firebase. O erro é exatamente este:
+
+```
+Execution failed for task ':app:processMensagensReleaseGoogleServices'.
+> No matching client found for package name 'com.soberan.app.mensagens' in android/app/google-services.json
+```
+
+No Console do Firebase, projeto `echo-b5aw9` → **Configurações do projeto → Seus apps → Adicionar app → Android**:
+
+1. Nome do pacote: `com.soberan.app.mensagens`
+2. Apelido: `HV Mensagens`
+3. **SHA-1 de release:** `26fc864aaa1d00a8afc1dd1e6a91b5a525567070`
+   **SHA-256 de release:** `87:D2:6A:FD:FC:A9:67:38:2D:74:C1:3D:C1:DE:13:B3:42:A4:27:43:55:76:56:75:93:EF:B6:FD:68:11:9C:7A`
+   (são os mesmos do app principal — veja "Uma keystore, um alias" abaixo)
+4. Baixe o `google-services.json` novo e substitua `android/app/google-services.json`. O arquivo passa a ter **os dois**
+   pacotes; o app principal continua funcionando igual.
+
+Sem o SHA cadastrado, o login com Google falha com `DEVELOPER_ERROR` (código 10), o App Check recusa e o push não chega.
+
+### Uma keystore, um alias — para os dois apps
+
+**Melhor prática aqui: a MESMA keystore e o MESMO alias (`soberan_key`) para os dois apps.** Não crie alias separado.
+
+- A impressão digital passa a ser **idêntica** nos dois: um par SHA-1/SHA-256 para cadastrar, um `assetlinks.json` coerente,
+  um certificado para conferir.
+- É **uma** chave para guardar e proteger. Perder a chave de um app publicado significa nunca mais poder atualizá-lo:
+  duplicar chaves duplica esse risco sem dar nada em troca.
+- Alias separado só faria sentido se os apps precisassem de identidades de assinatura distintas (por exemplo, para serem
+  mantidos por equipes diferentes). Não é o caso: é o mesmo produto, o mesmo time, o mesmo backend.
+
+A keystore é `E:\Soberan\keystores\soberan-keystore.jks` e a senha fica guardada pelo DPAPI do Windows — veja
+"Gerar e publicar uma versão nova" no começo deste documento. Nada de senha no Gradle, em `keystore.properties` ou no Git:
+o `apksigner` recebe a senha por variável de ambiente, que só existe durante a assinatura.
+
+Conferir a keystore e extrair as impressões digitais (pede a senha, não grava nada):
+
+```powershell
+$jdk = 'E:\Arquivos de Programas\Android\Android Studio\jbr'
+& "$jdk\bin\keytool" -list -v -keystore E:\Soberan\keystores\soberan-keystore.jks -alias soberan_key
+```
+
+A saída traz `SHA1:` e `SHA256:` — são esses valores que vão para o Firebase e para o `assetlinks.json`.
+
+### Gerar os APKs assinados
+
+O mesmo comando de sempre, agora com `-App`:
+
+```powershell
+# App principal (HiperVerso) — gera, assina, confere e publica em /download
+npm run apk:lancar -- -PublicarSite "o que mudou nesta versao"
+
+# App de mensagens (HV Mensagens) — gera, assina e confere; NÃO publica em /download
+npm run apk:lancar -- -App mensagens -SemPublicar
+```
+
+O APK de cada um sai em `android\app\build\outputs\apk\<sabor>\release\app-<sabor>-release.apk`.
+
+O `mensagens` não entra na página `/download` de propósito: essa página oferece o app principal. O HV Mensagens é
+distribuído pelo link do Beta. (O `publicar-apk.mjs` continua aceitando **só** `com.soberan.app`, e isso é uma proteção:
+impede publicar o app errado na página de download por engano.)
+
+### Conferir antes de soltar o link do Beta
+
+```powershell
+$bt = "$env:LOCALAPPDATA\Android\Sdk\build-tools\35.0.0"   # ajuste se a sua versao for outra
+$apk = 'android\app\build\outputs\apk\mensagens\release\app-mensagens-release.apk'
+
+& "$bt\apksigner.bat" verify --print-certs $apk   # assinatura valida + SHA-1/SHA-256 do certificado
+& "$bt\aapt2.exe" dump badging $apk | Select-String 'package:|application-label:'
+```
+
+Confira três coisas: `package: name='com.soberan.app.mensagens'`, `application-label:'HV Mensagens'` e o SHA-256 do
+certificado igual ao do app principal. Depois instale nos dois aparelhos de teste, lado a lado com o principal:
+
+```powershell
+adb install -r android\app\build\outputs\apk\mensagens\release\app-mensagens-release.apk
+adb shell am start -n com.soberan.app.mensagens/com.soberan.app.MainActivity
+```
+
+Teste, antes de liberar: entrar por cada método de login, abrir uma conversa, enviar e **receber** mensagem em tempo real
+com o site aberto na outra ponta, e sair e voltar (a sessão tem de continuar).
+
+### App Links (`assetlinks.json`)
+
+`public/.well-known/assetlinks.json` precisa de uma entrada para **cada** pacote. Como a chave é a mesma, o
+`sha256_cert_fingerprints` se repete:
+
+```json
+[
+  { "relation": ["delegate_permission/common.handle_all_urls", "delegate_permission/common.get_login_creds"],
+    "target": { "namespace": "android_app", "package_name": "com.soberan.app",
+                "sha256_cert_fingerprints": ["87:D2:...:9C:7A"] } },
+  { "relation": ["delegate_permission/common.handle_all_urls", "delegate_permission/common.get_login_creds"],
+    "target": { "namespace": "android_app", "package_name": "com.soberan.app.mensagens",
+                "sha256_cert_fingerprints": ["87:D2:...:9C:7A"] } }
+]
+```
+
+Depois de publicar o site, confira em
+`https://digitalassetlinks.googleapis.com/v1/statements:list?source.web.site=https://exercitodolula.app&relation=delegate_permission/common.handle_all_urls`.
+
+### AAB para a loja (ainda não automatizado)
+
+O `apk:lancar` gera **APK**, que é o formato do Beta por download direto. A Play Store exige **AAB**, e o `apksigner`
+não assina AAB (ele é um `.zip` de módulos, não um APK). O caminho é o `jarsigner`:
+
+```powershell
+$jdk = 'E:\Arquivos de Programas\Android\Android Studio\jbr'
+cd android
+.\gradlew bundlePrincipalRelease      # ou bundleMensagensRelease
+cd ..
+
+$aab = 'android\app\build\outputs\bundle\principalRelease\app-principal-release.aab'
+& "$jdk\bin\jarsigner" -keystore E:\Soberan\keystores\soberan-keystore.jks `
+    -sigalg SHA256withRSA -digestalg SHA-256 $aab soberan_key
+& "$jdk\bin\jarsigner" -verify -verbose:summary $aab
+```
+
+O `jarsigner` **pergunta a senha** e ela aparece na tela: por isso este passo é manual e fica fora do script automatizado.
+Se o AAB virar rotina, o certo é estender o `apk-lancar.ps1` para ler a senha do DPAPI e passá-la ao `jarsigner` por
+`-storepass:env`, como já é feito com o `apksigner`.
+
+Na Play Store, com **Play App Signing** ligado (o padrão), a chave acima é só a de *upload*: o Google reassina com a chave
+dele, e o SHA-1 que vale para o Google Sign-In em produção é o que aparece em **Configuração → Integridade do app**. Esse
+SHA-1 também precisa estar cadastrado no Firebase, nos dois apps.

@@ -1,6 +1,6 @@
 {
-  "name": "Exe. Lula",
-  "short_name": "Exe. Lula",
+  "name": "HiperVerso",
+  "short_name": "HiperVerso",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -24,5 +24,26 @@
       "type": "image/png",
       "purpose": "maskable"
     }
-  ]
+  ],
+  "prefer_related_applications": false,
+  "related_applications": [
+    {
+      "platform": "play",
+      "id": "com.soberan.app"
+    },
+    {
+      "platform": "webapp",
+      "url": "https://hiperverso.app/manifest.webmanifest"
+    }
+  ],
+  "share_target": {
+    "action": "/pt-BR/share",
+    "method": "GET",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
 }
