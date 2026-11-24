@@ -27,6 +27,7 @@ const MAX_HISTORY_ITEMS = 5;
 interface GlobalSearchProps {
   isExpanded: boolean;
   setIsExpanded: (expanded: boolean) => void;
+  alwaysExpanded?: boolean;
 }
 
 interface RemoteLookupPreview {
@@ -36,7 +37,7 @@ interface RemoteLookupPreview {
   iconUrl: string | null;
 }
 
-export default function GlobalSearch({ isExpanded, setIsExpanded }: GlobalSearchProps) {
+export default function GlobalSearch({ isExpanded, setIsExpanded, alwaysExpanded = false }: GlobalSearchProps) {
   const t = useTranslations('GlobalSearch');
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState<SearchResult | null>(null);
@@ -54,10 +55,10 @@ export default function GlobalSearch({ isExpanded, setIsExpanded }: GlobalSearch
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (isExpanded) {
+    if (isExpanded && !alwaysExpanded) {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [isExpanded]);
+  }, [isExpanded, alwaysExpanded]);
   
   // Close search on outside click, ignoring clicks inside the popover content
   useEffect(() => {
@@ -69,13 +70,15 @@ export default function GlobalSearch({ isExpanded, setIsExpanded }: GlobalSearch
         !containerRef.current.contains(target) &&
         !target.parentElement?.closest('[data-radix-popper-content-wrapper]')
       ) {
-        setIsExpanded(false);
+        if (!alwaysExpanded) {
+          setIsExpanded(false);
+        }
         setIsPopoverOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [containerRef, setIsExpanded]);
+  }, [containerRef, setIsExpanded, alwaysExpanded]);
 
   useEffect(() => {
     try {
@@ -167,7 +170,9 @@ export default function GlobalSearch({ isExpanded, setIsExpanded }: GlobalSearch
     if (term) {
       addToHistory(term);
       setIsPopoverOpen(false);
-      setIsExpanded(false);
+      if (!alwaysExpanded) {
+        setIsExpanded(false);
+      }
       const classified = classifySearchQuery(term);
       if (classified.kind === 'local-url') {
         router.push(classified.path);
@@ -180,7 +185,9 @@ export default function GlobalSearch({ isExpanded, setIsExpanded }: GlobalSearch
   
   const handleSelect = (url: string, term?: string) => {
     setIsPopoverOpen(false);
-    setIsExpanded(false);
+    if (!alwaysExpanded) {
+      setIsExpanded(false);
+    }
     if (term) addToHistory(term);
     // Use router.push for client-side navigation.
     router.push(url);
@@ -198,7 +205,7 @@ export default function GlobalSearch({ isExpanded, setIsExpanded }: GlobalSearch
   const showHistory = searchQuery.length === 0 && searchHistory.length > 0;
   const showResults = searchQuery.length > 1;
   
-  if (!isExpanded) {
+  if (!isExpanded && !alwaysExpanded) {
     return (
       <Button
         variant="ghost"
@@ -213,16 +220,26 @@ export default function GlobalSearch({ isExpanded, setIsExpanded }: GlobalSearch
   }
 
   return (
-    <div ref={containerRef} className="relative w-full max-w-sm sm:max-w-md">
+    <div ref={containerRef} className={cn('relative w-full', !alwaysExpanded && 'max-w-sm sm:max-w-md')}>
        <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
         <PopoverAnchor asChild>
           <form onSubmit={handleSearchSubmit} className="relative w-full flex items-center">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Search
+              className={cn(
+                'absolute top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none',
+                alwaysExpanded ? 'left-3.5' : 'left-3'
+              )}
+            />
             <Input
               ref={inputRef}
               type="search"
               placeholder={t('placeholder')}
-              className="h-9 rounded-full text-sm pl-9 w-full transition-all bg-muted"
+              className={cn(
+                'w-full transition-all',
+                alwaysExpanded
+                  ? 'h-10 rounded-full border border-border/70 bg-muted/40 pl-10 text-sm focus-visible:bg-background focus-visible:border-primary/60'
+                  : 'h-9 rounded-full text-sm pl-9 bg-muted'
+              )}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onFocus={handleFocus}
