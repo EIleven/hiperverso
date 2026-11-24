@@ -220,7 +220,7 @@ export default function RightSidebar({ unreadNotifications = 0 }: RightSidebarPr
   return (
     <aside className={asideClassName} aria-label={t('sidebarLabel')}>
       <div className="space-y-5">
-        <div className="sticky top-0 z-10 bg-background/85 px-0.5 pb-3 pt-0.5 backdrop-blur-md">
+        <div className="sticky top-0 z-10 bg-background/85 px-1 pb-3 pt-1 backdrop-blur-md">
           <div className="flex items-center gap-2">
             <div className="min-w-0 flex-1">
               <GlobalSearch isExpanded alwaysExpanded setIsExpanded={() => {}} />

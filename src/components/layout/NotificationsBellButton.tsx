@@ -33,6 +33,8 @@ export default function NotificationsBellButton({
   const pathnameWithoutLocale = pathname.replace(`/${locale}`, '') || '/';
   const isActive = pathnameWithoutLocale.startsWith('/notifications');
   const label = t('nav.notifications');
+  const badgeText = unreadCount > 99 ? '99+' : String(unreadCount);
+  const accessibleLabel = unreadCount > 0 ? `${label} (${unreadCount} não lidas)` : label;
 
   return (
     <Button
@@ -40,7 +42,7 @@ export default function NotificationsBellButton({
       variant="ghost"
       size="icon"
       className={cn(
-        'relative shrink-0 rounded-full transition-colors',
+        'relative shrink-0 overflow-visible rounded-full transition-colors',
         variant === 'pill'
           ? 'h-10 w-10 border border-border/70 bg-muted/40 hover:bg-muted/70'
           : 'h-9 w-9',
@@ -48,14 +50,15 @@ export default function NotificationsBellButton({
         className
       )}
     >
-      <Link href={`/${locale}/notifications`} aria-label={label} title={label}>
+      <Link href={`/${locale}/notifications`} aria-label={accessibleLabel} title={accessibleLabel}>
         <Bell className={cn('h-5 w-5', isActive && 'stroke-[2.3]')} aria-hidden="true" />
         {unreadCount > 0 && (
           <Badge
             variant="default"
-            className="absolute -top-1 -right-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] leading-none"
+            aria-hidden="true"
+            className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-0 px-1 py-0 text-[10px] font-bold leading-none tabular-nums shadow-sm ring-2 ring-background"
           >
-            {unreadCount > 9 ? '9+' : unreadCount}
+            {badgeText}
           </Badge>
         )}
       </Link>

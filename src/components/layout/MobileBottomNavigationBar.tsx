@@ -148,8 +148,11 @@ const MobileBottomNavigationBar: React.FC<MobileBottomNavigationBarProps> = ({
                   )}>
                     <item.icon size={22} className={cn(isActive && isMessagesItem && "fill-primary/25 stroke-[2.25]")} />
                     {item.showBadge && currentUser && count > 0 && (
-                      <UiBadge variant="default" className="absolute -top-0.5 right-0 flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px]">
-                        {count > 9 ? '9+' : count}
+                      <UiBadge
+                        variant="default"
+                        className="pointer-events-none absolute -top-0.5 right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-0 px-1 py-0 text-[10px] font-bold leading-none tabular-nums ring-2 ring-background"
+                      >
+                        {count > 99 ? '99+' : count}
                       </UiBadge>
                     )}
                   </div>

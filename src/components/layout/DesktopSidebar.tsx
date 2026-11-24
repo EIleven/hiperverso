@@ -200,9 +200,9 @@ const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                       {item.showBadge && clientHasMounted && currentUser && !isLoadingCurrentUser && count > 0 && (
                         <UiBadge
                           variant="default"
-                          className="absolute -top-1.5 -right-1.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px]"
+                          className="pointer-events-none absolute -top-1.5 -right-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-0 px-1 py-0 text-[10px] font-bold leading-none tabular-nums ring-2 ring-background"
                         >
-                          {count > 9 ? '9+' : count}
+                          {count > 99 ? '99+' : count}
                         </UiBadge>
                       )}
                     </div>
