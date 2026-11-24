@@ -59,7 +59,7 @@ const FloatingComposeDock: React.FC<FloatingComposeDockProps> = ({
       <div
         role="region"
         aria-label={`${t('post')} e ${t('article')}`}
-        className="fixed z-40 right-4 bottom-[calc(4rem+0.85rem)] min-[800px]:right-6 min-[800px]:bottom-6 flex flex-col items-center gap-1.5 rounded-2xl border border-border/80 bg-card/90 p-1.5 shadow-[0_14px_38px_-10px_rgba(0,0,0,0.65)] backdrop-blur-md transition-colors duration-300"
+        className="chrome-float-mobile fixed z-40 right-4 bottom-[calc(4rem+0.85rem)] min-[800px]:right-6 min-[800px]:bottom-6 flex flex-col items-center gap-1.5 rounded-2xl border border-border/80 bg-card/90 p-1.5 shadow-[0_14px_38px_-10px_rgba(0,0,0,0.65)] backdrop-blur-md"
       >
         <Tooltip>
           <TooltipTrigger asChild>

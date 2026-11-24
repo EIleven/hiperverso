@@ -57,11 +57,11 @@ const MobileBottomNavigationBar: React.FC<MobileBottomNavigationBarProps> = ({
     ? { href: `/${locale}/profile/${currentUser.id}`, label: t('profile'), icon: UserIcon, requiresAuth: true, isProfileLink: true, authHref: (id) => `/${locale}/profile/${id}` }
     : { href: `/${locale}/login`, label: t('login'), icon: LogIn, requiresAuth: false, isProfileLink: true };
 
-  // Mantém a barra inferior limpa no padrão mobile (máx. 5 ações principais).
+  // Mantém a barra inferior limpa no padrão mobile (4 ações principais; Notificações já fica no topo).
   // Rotas secundárias (Marcadores, Leitura limpa, Identidade P2P) ficam no menu gaveta.
   const visibleNavItems = navItems
-    .filter(item => !item.requiresAuth || !!currentUser)
-    .slice(0, 4);
+    .filter(item => (!item.requiresAuth || !!currentUser) && !item.href.includes('/notifications'))
+    .slice(0, 3);
 
   const allDisplayItems = [
     ...visibleNavItems,
@@ -70,8 +70,8 @@ const MobileBottomNavigationBar: React.FC<MobileBottomNavigationBarProps> = ({
 
 
   return (
-    // Some ao rolar para baixo e volta ao rolar para cima: veja `.chrome-bottom` (globals.css), movido por CSS e não por estado.
-    <div className="chrome-bottom fixed bottom-0 left-0 right-0 h-14 bg-background border-t border-border shadow-md flex items-center justify-around z-40">
+    // Mantém a barra inferior sempre à mostra no mobile para navegação imediata.
+    <div className="fixed bottom-0 left-0 right-0 h-14 bg-background border-t border-border shadow-md flex items-center justify-around z-40">
       {allDisplayItems.map((item) => {
         let actualHref = item.href;
         let isActive = false;

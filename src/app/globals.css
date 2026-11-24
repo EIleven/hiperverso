@@ -369,6 +369,10 @@ html.hv-theme-transition *::after {
   .chrome-float {
     transition: transform 300ms ease-in-out;
   }
+  .chrome-float-mobile {
+    will-change: transform, opacity;
+    transition: transform 300ms ease-in-out, opacity 250ms ease-in-out, background-color 300ms ease-in-out, border-color 300ms ease-in-out;
+  }
   .chrome-sticky {
     top: var(--header-height);
     transition: top 300ms ease-in-out;
@@ -380,6 +384,13 @@ html.hv-theme-transition *::after {
   html[data-chrome='hidden'] .chrome-float {
     transform: translateY(100%);
   }
+  @media (max-width: 799px) {
+    html[data-chrome='hidden'] .chrome-float-mobile {
+      transform: translateY(calc(100% + 6rem));
+      opacity: 0;
+      pointer-events: none;
+    }
+  }
   html[data-chrome='hidden'] .chrome-sticky {
     top: 0;
   }
@@ -387,6 +398,7 @@ html.hv-theme-transition *::after {
     .chrome-header,
     .chrome-bottom,
     .chrome-float,
+    .chrome-float-mobile,
     .chrome-sticky {
       transition: none;
     }
