@@ -556,6 +556,7 @@ async function fetchActivityPage(
   const repostQuery = (...filters: QueryConstraint[]) =>
     query(collectionGroup(db, 'reposts'), ...filters, ...before, orderBy('createdAt', 'desc'), firestoreLimit(pageSize));
   const postQueries: Query<DocumentData>[] = [];
+  const restrictedPostQueries: Query<DocumentData>[] = [];
   const repostQueries: Query<DocumentData>[] = [];
 
   // Feed "Seguindo" e feed criado pela pessoa funcionam igual: o que muda é a lista de autores. No feed criado, a
@@ -583,7 +584,7 @@ async function fetchActivityPage(
     // Contas ap_ do Fediverso nunca têm posts com visibility == 'followers' no Firestore.
     const localRestrictedAuthors = autoresComAcessoRestrito.filter((id) => !isRemoteId(id));
     for (const chunk of chunkIds(localRestrictedAuthors, 10)) {
-      postQueries.push(postQuery(where('userId', 'in', chunk), where('visibility', '==', 'followers')));
+      restrictedPostQueries.push(postQuery(where('userId', 'in', chunk), where('visibility', '==', 'followers')));
     }
   } else if (options.feedContext === 'profile_posts' && options.profileUserId) {
     const profileId = options.profileUserId;
@@ -613,9 +614,25 @@ async function fetchActivityPage(
     repostQueries.push(repostQuery());
   }
 
-  const snapshots = await Promise.all([...postQueries, ...repostQueries].map(q => getDocs(q)));
-  const fontes = snapshots.map((snapshot, index) => {
-    const kind: FeedActivity['kind'] = index < postQueries.length ? 'post' : 'repost';
+  const [coreSnapshots, restrictedSnapshots] = await Promise.all([
+    Promise.all([...postQueries, ...repostQueries].map(q => getDocs(q))),
+    Promise.all(
+      restrictedPostQueries.map((q) =>
+        getDocs(q).catch((err: any) => {
+          // Se um seguimento estiver dessincronizado (sem subcoleção followers espelhada), degrada só os posts restritos sem derrubar o feed inteiro.
+          if (err?.code === 'permission-denied') return null;
+          throw err;
+        }),
+      ),
+    ),
+  ]);
+  const validRestricted = restrictedSnapshots.filter((snap): snap is NonNullable<typeof snap> => snap !== null);
+  const allSnapshots: Array<{ kind: FeedActivity['kind']; snapshot: typeof coreSnapshots[number] }> = [
+    ...coreSnapshots.slice(0, postQueries.length).map((snapshot) => ({ kind: 'post' as const, snapshot })),
+    ...validRestricted.map((snapshot) => ({ kind: 'post' as const, snapshot })),
+    ...coreSnapshots.slice(postQueries.length).map((snapshot) => ({ kind: 'repost' as const, snapshot })),
+  ];
+  const fontes = allSnapshots.map(({ kind, snapshot }) => {
     const atividades = snapshot.docs.map(snap => toActivity(kind, snap)).filter((a): a is FeedActivity => !!a);
     return {
       itens: atividades.map((a) => ({ time: a.time, item: a })),
