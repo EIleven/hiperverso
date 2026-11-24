@@ -165,7 +165,12 @@ export function useInfiniteFeed<C = FirestoreTimestamp | string | number | null>
       if (currentRequestRef.current === requestKey) initialRequestRef.current = null;
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (initialRequestRef.current === requestKey) {
+        initialRequestRef.current = null;
+      }
+    };
   }, [cacheFeedId, enabled, feedId, getFeedState, loadItemsInternal, queryKey, requestKey, setFeedState, viewerKey]);
 
   const prependPosts = useCallback((newItems: (Post | Comment)[]) => {
