@@ -127,76 +127,136 @@ export default function SharePostDialog({ post, open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Compartilhar</DialogTitle>
-          <DialogDescription>
+      <DialogContent
+        className="inset-x-auto left-1/2 top-1/2 w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border/80 p-4 shadow-2xl sm:max-w-lg sm:p-6 max-h-[88dvh] overflow-y-auto data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]"
+      >
+        <DialogHeader className="space-y-1 pr-8 text-left">
+          <DialogTitle className="text-lg font-semibold">Compartilhar</DialogTitle>
+          <DialogDescription className="text-xs sm:text-sm leading-relaxed">
             {restrito
               ? 'Este post é só para seguidores: quem abrir o link sem seguir o autor não vê o conteúdo, e a imagem sai só com a marca.'
               : 'Mande o link para outra rede ou leve o post como imagem para o Instagram.'}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-          {redes.map(({ nome, Icone, href }) => (
-            <a
-              key={nome}
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex flex-col items-center gap-1 rounded-lg p-3 text-xs hover:bg-accent"
-            >
-              <Icone className="h-6 w-6" />
-              {nome}
-            </a>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={copiarLink}><Copy className="mr-2 h-4 w-4" />Copiar link</Button>
-          <Button variant="outline" size="sm" onClick={compartilharDoCelular}><Share2 className="mr-2 h-4 w-4" />Mais opções</Button>
-          <Button variant="outline" size="sm" asChild>
-            <a href={`mailto:?subject=${encodeURIComponent(titulo)}&body=${encodeURIComponent(url)}`}>
-              <Send className="mr-2 h-4 w-4" />E-mail
-            </a>
-          </Button>
-        </div>
-
-        {!restrito && (
-          <div className="space-y-3 rounded-lg border p-3">
-            <div className="flex items-center gap-2 text-sm font-medium"><Instagram className="h-4 w-4" />Imagem para o Instagram</div>
-            <div className="flex gap-2">
-              <Button variant={formato === 'quadrado' ? 'default' : 'outline'} size="sm" onClick={() => setFormato('quadrado')}>Feed</Button>
-              <Button variant={formato === 'story' ? 'default' : 'outline'} size="sm" onClick={() => setFormato('story')}>Story e reels</Button>
-            </div>
-            <div className="relative mx-auto w-full max-w-[220px] overflow-hidden rounded-md border bg-muted">
-              <Image
-                key={formato}
-                src={imagemUrl}
-                alt="Prévia da imagem do post"
-                width={formato === 'story' ? 1080 : 1080}
-                height={formato === 'story' ? 1920 : 1080}
-                className="h-auto w-full"
-                unoptimized
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => usarImagem('compartilhar')} disabled={baixando}>
-                {baixando ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Instagram className="mr-2 h-4 w-4" />}
-                Compartilhar imagem
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => usarImagem('baixar')} disabled={baixando}>
-                <Download className="mr-2 h-4 w-4" />Baixar
-              </Button>
-              <Button variant="ghost" size="sm" asChild>
-                <a href={imagemUrl} target="_blank" rel="noopener noreferrer"><Link2 className="mr-2 h-4 w-4" />Abrir</a>
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              O Instagram não deixa outro site publicar por você: a imagem vai pronta e você escolhe feed, story ou reels.
-            </p>
+        <div className="space-y-4 pt-1">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+            {redes.map(({ nome, Icone, href }) => (
+              <a
+                key={nome}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-border/60 bg-muted/25 px-2 py-2.5 text-[11px] font-medium text-foreground/90 transition-colors hover:border-primary/40 hover:bg-primary/10"
+              >
+                <Icone className="h-5 w-5" />
+                <span className="truncate">{nome}</span>
+              </a>
+            ))}
           </div>
-        )}
+
+          <div className="grid grid-cols-3 gap-2">
+            <Button variant="outline" size="sm" onClick={copiarLink} className="h-9 rounded-xl px-2 text-xs">
+              <Copy className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">Copiar link</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={compartilharDoCelular} className="h-9 rounded-xl px-2 text-xs">
+              <Share2 className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">Mais opções</span>
+            </Button>
+            <Button variant="outline" size="sm" asChild className="h-9 rounded-xl px-2 text-xs">
+              <a href={`mailto:?subject=${encodeURIComponent(titulo)}&body=${encodeURIComponent(url)}`}>
+                <Send className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">E-mail</span>
+              </a>
+            </Button>
+          </div>
+
+          {!restrito && (
+            <div className="space-y-3 rounded-2xl border border-border/70 bg-muted/15 p-3.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Instagram className="h-4 w-4 text-primary" />
+                  <span>Imagem para o Instagram</span>
+                </div>
+                <div className="inline-flex rounded-xl border border-border/60 bg-background/70 p-0.5">
+                  <Button
+                    type="button"
+                    variant={formato === 'quadrado' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setFormato('quadrado')}
+                    className="h-7 rounded-lg px-2.5 text-xs"
+                  >
+                    Feed
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={formato === 'story' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setFormato('story')}
+                    className="h-7 rounded-lg px-2.5 text-xs"
+                  >
+                    Story e reels
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex justify-center">
+                <div
+                  className={
+                    formato === 'story'
+                      ? 'relative w-full max-w-[132px] aspect-[9/16] overflow-hidden rounded-xl border border-border/70 bg-muted'
+                      : 'relative w-full max-w-[196px] aspect-square overflow-hidden rounded-xl border border-border/70 bg-muted'
+                  }
+                >
+                  <Image
+                    key={formato}
+                    src={imagemUrl}
+                    alt="Prévia da imagem do post"
+                    width={1080}
+                    height={formato === 'story' ? 1920 : 1080}
+                    className="h-full w-full object-cover"
+                    unoptimized
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Button
+                  size="sm"
+                  onClick={() => usarImagem('compartilhar')}
+                  disabled={baixando}
+                  className="h-9 w-full rounded-xl sm:flex-1"
+                >
+                  {baixando ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Instagram className="mr-2 h-4 w-4" />}
+                  Compartilhar imagem
+                </Button>
+                <div className="grid grid-cols-2 gap-2 sm:flex">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => usarImagem('baixar')}
+                    disabled={baixando}
+                    className="h-9 rounded-xl"
+                  >
+                    <Download className="mr-1.5 h-4 w-4" />
+                    Baixar
+                  </Button>
+                  <Button variant="outline" size="sm" asChild className="h-9 rounded-xl">
+                    <a href={imagemUrl} target="_blank" rel="noopener noreferrer">
+                      <Link2 className="mr-1.5 h-4 w-4" />
+                      Abrir
+                    </a>
+                  </Button>
+                </div>
+              </div>
+
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                O Instagram não deixa outro site publicar por você: a imagem vai pronta e você escolhe feed, story ou reels.
+              </p>
+            </div>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
